@@ -1,8 +1,8 @@
 ## .NET / C# / ASP.NET Core
 
 # Build outputs
-bin/
-obj/
+**/bin/
+**/obj/
 
 # NuGet packages
 *.nupkg
