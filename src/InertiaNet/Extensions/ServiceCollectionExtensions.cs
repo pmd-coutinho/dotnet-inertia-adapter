@@ -47,10 +47,10 @@ public static class ServiceCollectionExtensions
         // Scoped Inertia service
         services.TryAddScoped<IInertiaService, InertiaService>();
 
-        // Middleware (transient — created per-request by the pipeline)
-        services.TryAddTransient<TMiddleware>();
-        if (typeof(TMiddleware) != typeof(InertiaMiddleware))
-            services.TryAddTransient<InertiaMiddleware, TMiddleware>();
+        // Note: InertiaMiddleware is NOT registered in DI.
+        // UseMiddleware<T>() instantiates conventional middleware (constructor takes RequestDelegate)
+        // itself via its own factory — registering it as a service causes "unable to resolve
+        // RequestDelegate" errors because the DI container cannot provide RequestDelegate.
 
         // SSR gateway (only registered when SSR URL is configured via AddSsr<>())
         // — registered separately via AddInertiaWithSsr()
@@ -75,6 +75,24 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<InertiaOptions>? configure = null)
         => services.AddInertiaWithSsr<InertiaMiddleware>(configure);
+
+    /// <summary>
+    /// Registers the Vite integration, making <c>&lt;vite-input&gt;</c> and
+    /// <c>&lt;vite-react-refresh&gt;</c> tag helpers available in Razor views.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Optional action to configure <see cref="ViteOptions"/>.</param>
+    public static IServiceCollection AddViteHelper(
+        this IServiceCollection services,
+        Action<ViteOptions>? configure = null)
+    {
+        // Registers IOptions<ViteOptions> so the ViteInputTagHelper and
+        // ViteReactRefreshTagHelper can receive it via constructor injection.
+        var optionsBuilder = services.AddOptions<ViteOptions>();
+        if (configure is not null) optionsBuilder.Configure(configure);
+
+        return services;
+    }
 
     /// <summary>
     /// Registers InertiaNet with SSR enabled and a custom middleware subclass.
