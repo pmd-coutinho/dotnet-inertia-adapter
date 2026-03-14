@@ -1,0 +1,64 @@
+## .NET / C# / ASP.NET Core
+
+# Build outputs
+bin/
+obj/
+
+# NuGet packages
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docobj
+
+# Visual Studio
+.vs/
+*.rsuser
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Test results
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.cobertura.xml
+
+# Publish output
+publish/
+**/Properties/PublishProfiles/
+
+# ASP.NET Core Data Protection keys
+DataProtection-Keys/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite / frontend build artifacts (if bundled with the project)
+wwwroot/build/
+wwwroot/hot
+node_modules/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+appsettings.*.json
+!appsettings.Development.json

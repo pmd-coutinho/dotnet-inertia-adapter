@@ -1,0 +1,14 @@
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/bin/Debug/net10.0/InertiaNet.deps.json
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/bin/Debug/net10.0/InertiaNet.dll
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/bin/Debug/net10.0/InertiaNet.pdb
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/bin/Debug/net10.0/InertiaNet.xml
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.csproj.AssemblyReference.cache
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.GeneratedMSBuildEditorConfig.editorconfig
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.AssemblyInfoInputs.cache
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.AssemblyInfo.cs
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.csproj.CoreCompileInputs.cache
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.dll
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/refint/InertiaNet.dll
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.xml
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/InertiaNet.pdb
+/var/home/pedrocoutinho/dotnet-inertia-adapter/src/InertiaNet/obj/Debug/net10.0/ref/InertiaNet.dll
