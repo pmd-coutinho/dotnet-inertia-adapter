@@ -119,6 +119,20 @@ public interface IInertiaService
     /// <summary>Excludes specific URL paths from SSR (v3).</summary>
     IInertiaService WithoutSsr(params string[] paths);
 
+    // ── Conditional props ─────────────────────────────────────────────────────
+
+    /// <summary>Shares the prop only when <paramref name="condition"/> is true.</summary>
+    IInertiaService When(bool condition, string key, object? value);
+
+    /// <summary>Shares the prop (async callback) only when <paramref name="condition"/> is true.</summary>
+    IInertiaService When(bool condition, string key, Func<IServiceProvider, CancellationToken, Task<object?>> callback);
+
+    /// <summary>Shares the prop only when <paramref name="condition"/> is false.</summary>
+    IInertiaService Unless(bool condition, string key, object? value);
+
+    /// <summary>Shares the prop (async callback) only when <paramref name="condition"/> is false.</summary>
+    IInertiaService Unless(bool condition, string key, Func<IServiceProvider, CancellationToken, Task<object?>> callback);
+
     // ── Per-request flags (read by InertiaResult) ────────────────────────────
 
     bool GetClearHistory();

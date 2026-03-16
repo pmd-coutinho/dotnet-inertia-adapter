@@ -73,6 +73,10 @@ public sealed class InertiaResult : IActionResult, IResult
 
         try
         {
+            // 0. Validate component exists (if configured)
+            if (options.Pages.EnsurePagesExist)
+                ValidateComponentExists(_component, options.Pages);
+
             // 1. Run PropsResolver
             var resolver = new PropsResolver(httpContext, _component, services);
             var (resolvedProps, metadata) = await resolver.ResolveAsync(
@@ -84,16 +88,39 @@ public sealed class InertiaResult : IActionResult, IResult
             await resolver.CollectScrollMetadataAsync(
                 new Dictionary<string, object?>(_pageProps), ct);
 
+            // 1b. Event hook: OnAfterResolveProps
+            var handlers = services.GetServices<IInertiaEventHandler>();
+            foreach (var handler in handlers)
+                await handler.OnAfterResolveProps(httpContext, resolvedProps);
+
             // 2. Build the page object
             var encryptHistory = _inertiaService.GetEncryptHistory() ?? options.EncryptHistory;
 
             var page = BuildPageObject(httpContext, resolvedProps, metadata, encryptHistory, options);
 
+            // 2b. Event hook: OnBeforeRender
+            foreach (var handler in handlers)
+                await handler.OnBeforeRender(httpContext, page);
+
             // 3. Determine response type
             var isInertiaRequest = httpContext.Request.Headers.ContainsKey(HeaderNames.Inertia);
 
-            // Always set Vary: X-Inertia
-            httpContext.Response.Headers["Vary"] = HeaderNames.Inertia;
+            // Always set Vary: X-Inertia (append, don't overwrite)
+            httpContext.Response.Headers.Append("Vary", HeaderNames.Inertia);
+
+            // Prefetch cache headers
+            var isPrefetch = httpContext.Request.Headers.TryGetValue(HeaderNames.Purpose, out var purpose)
+                && purpose.ToString().Equals("prefetch", StringComparison.OrdinalIgnoreCase);
+
+            if (isPrefetch)
+            {
+                var maxAge = httpContext.Request.Headers.TryGetValue(HeaderNames.Prefetch, out var prefetchDuration)
+                    && int.TryParse(prefetchDuration, out var clientMaxAge)
+                    ? clientMaxAge
+                    : options.PrefetchCacheMaxAge;
+
+                httpContext.Response.Headers.CacheControl = $"private, max-age={maxAge}";
+            }
 
             if (isInertiaRequest)
             {
@@ -233,6 +260,40 @@ public sealed class InertiaResult : IActionResult, IResult
             viewResult.ViewData[k] = v;
 
         await viewResult.ExecuteResultAsync(actionContext);
+    }
+
+    private static void ValidateComponentExists(string component, PagesOptions pages)
+    {
+        // Strategy 1: Check Vite manifest keys (production / build available)
+        foreach (var manifestPath in pages.ManifestPaths)
+        {
+            if (File.Exists(manifestPath))
+            {
+                var json = File.ReadAllText(manifestPath);
+                using var doc = JsonDocument.Parse(json);
+                foreach (var ext in pages.Extensions)
+                {
+                    var suffix = $"{component}.{ext}";
+                    if (doc.RootElement.EnumerateObject().Any(p => p.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+                        return;
+                }
+            }
+        }
+
+        // Strategy 2: Check source directories directly (dev mode, no build yet)
+        foreach (var dir in pages.Paths)
+        {
+            var componentPath = component.Replace('/', Path.DirectorySeparatorChar);
+            foreach (var ext in pages.Extensions)
+                if (File.Exists(Path.Combine(dir, $"{componentPath}.{ext}")))
+                    return;
+        }
+
+        var searched = pages.ManifestPaths.Concat(pages.Paths).ToArray();
+        var extensions = string.Join(", ", pages.Extensions.Select(e => $".{e}"));
+        throw new InvalidOperationException(
+            $"Inertia page component \"{component}\" not found. " +
+            $"Searched: [{string.Join(", ", searched)}] with extensions: [{extensions}].");
     }
 
     private static async Task RenderViewMinimalAsync(

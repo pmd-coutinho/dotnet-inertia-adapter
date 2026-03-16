@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/InertiaNet/InertiaNet.csproj" />
+    <Project Path="src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/InertiaNet.Tests/InertiaNet.Tests.csproj" />

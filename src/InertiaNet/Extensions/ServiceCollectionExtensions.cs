@@ -3,6 +3,7 @@ using InertiaNet.Middleware;
 using InertiaNet.Ssr;
 using InertiaNet.TagHelpers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -63,6 +64,13 @@ public static class ServiceCollectionExtensions
             Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataDictionaryFactory,
             Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionaryFactory>();
 
+        // Global MVC filters
+        services.Configure<MvcOptions>(mvcOptions =>
+        {
+            mvcOptions.Filters.Add<InertiaPrecognitionFilter>(order: -100);
+            mvcOptions.Filters.Add<InertiaValidationFilter>();
+        });
+
         return services;
     }
 
@@ -75,6 +83,13 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<InertiaOptions>? configure = null)
         => services.AddInertiaWithSsr<InertiaMiddleware>(configure);
+
+    /// <summary>
+    /// Registers an <see cref="IInertiaEventHandler"/> implementation for the render pipeline.
+    /// </summary>
+    public static IServiceCollection AddInertiaEventHandler<T>(this IServiceCollection services)
+        where T : class, IInertiaEventHandler
+        => services.AddScoped<IInertiaEventHandler, T>();
 
     /// <summary>
     /// Registers the Vite integration, making <c>&lt;vite-input&gt;</c> and

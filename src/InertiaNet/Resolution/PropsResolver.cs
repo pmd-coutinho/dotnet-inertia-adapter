@@ -153,6 +153,15 @@ internal sealed class PropsResolver
             }
         }
 
+        // Recursively unpack any nested dictionaries that still contain dot-notation keys
+        foreach (var key in result.Keys.ToList())
+        {
+            if (result[key] is Dictionary<string, object?> nested && nested.Keys.Any(k => k.Contains('.')))
+            {
+                result[key] = UnpackDotKeys(nested);
+            }
+        }
+
         return result;
     }
 
@@ -348,7 +357,7 @@ internal sealed class PropsResolver
 
     private void CollectMetadata(object? propWrapper, string path)
     {
-        if (propWrapper is IMergeable mergeable && mergeable.ShouldMerge())
+        if (propWrapper is IMergeable mergeable && mergeable.ShouldMerge() && !_resetProps.Contains(path))
         {
             if (mergeable.ShouldDeepMerge() && !_deepMergeProps.Contains(path))
                 _deepMergeProps.Add(path);

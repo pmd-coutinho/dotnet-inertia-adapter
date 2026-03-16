@@ -1,5 +1,6 @@
 using InertiaNet.Core;
 using InertiaNet.Extensions;
+using InertiaNet.Props;
 using InertiaNet.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -98,6 +99,21 @@ public class InertiaMiddleware
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Override to customise CSRF/XSRF token sharing. No-ops when IAntiforgery is not registered.
+    /// </summary>
+    protected virtual Task ShareCsrfToken(HttpContext context, IInertiaService inertia)
+    {
+        var antiforgery = context.RequestServices.GetService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
+        if (antiforgery is null) return Task.CompletedTask;
+
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        if (tokens.RequestToken is not null)
+            inertia.Share("xsrfToken", tokens.RequestToken);
+
+        return Task.CompletedTask;
+    }
+
     // ── Pipeline ──────────────────────────────────────────────────────────────
 
     public async Task InvokeAsync(HttpContext context)
@@ -119,6 +135,7 @@ public class InertiaMiddleware
         // Let the subclass share global / once props
         await Share(context, inertia);
         await ShareOnce(context, inertia);
+        await ShareCsrfToken(context, inertia);
 
         // ── Load errors & flash from TempData (forwarded from previous redirect) ──
         // Skip on prefetch to avoid consuming TempData that should be delivered on the real visit.
@@ -138,9 +155,9 @@ public class InertiaMiddleware
                 var errors = DeserializeErrors(errorsStr, options.WithAllErrors);
 
                 if (errorBag is not null && errorBag.Length > 0)
-                    inertia.Share("errors", new Dictionary<string, object?> { [errorBag] = errors });
+                    inertia.Share("errors", new AlwaysProp(new Dictionary<string, object?> { [errorBag] = errors }));
                 else
-                    inertia.Share("errors", errors);
+                    inertia.Share("errors", new AlwaysProp(errors));
 
                 // consume — don't reflash
                 tempData.Remove(SessionKeys.ValidationErrors);
@@ -161,6 +178,20 @@ public class InertiaMiddleware
                 var flashDict = DeserializeFlash(flashStr);
                 inertia.Flash(flashDict);
                 tempData.Remove(SessionKeys.FlashData);
+                tempData.Save();
+            }
+
+            // Restore clearHistory / preserveFragment flags from a previous redirect
+            if (tempData.TryGetValue(SessionKeys.ClearHistory, out var ch) && ch is true)
+            {
+                inertia.ClearHistory();
+                tempData.Remove(SessionKeys.ClearHistory);
+                tempData.Save();
+            }
+            if (tempData.TryGetValue(SessionKeys.PreserveFragment, out var pf) && pf is true)
+            {
+                inertia.PreserveFragment();
+                tempData.Remove(SessionKeys.PreserveFragment);
                 tempData.Save();
             }
         }
@@ -191,10 +222,19 @@ public class InertiaMiddleware
         // Persist flash data to TempData when redirecting so it survives the next request.
         // Skip on prefetch to avoid double-writing flash that was already restored.
         var flashData = inertia.GetFlashData();
-        if (!isPrefetch && flashData.Count > 0 && IsRedirect(context.Response.StatusCode) && tempDataFactory is not null)
+        if (!isPrefetch && IsRedirect(context.Response.StatusCode) && tempDataFactory is not null)
         {
             var tempData = tempDataFactory.GetTempData(context);
-            tempData[SessionKeys.FlashData] = JsonSerializer.Serialize(flashData, FlashJsonOptions);
+
+            if (flashData.Count > 0)
+                tempData[SessionKeys.FlashData] = JsonSerializer.Serialize(flashData, FlashJsonOptions);
+
+            if (inertia.GetClearHistory())
+                tempData[SessionKeys.ClearHistory] = true;
+
+            if (inertia.GetPreserveFragment())
+                tempData[SessionKeys.PreserveFragment] = true;
+
             tempData.Save();
         }
 
@@ -215,7 +255,7 @@ public class InertiaMiddleware
         }
 
         // Fragment-bearing redirects → 409 + X-Inertia-Redirect (v3)
-        if (IsRedirect(context.Response.StatusCode))
+        if (IsRedirect(context.Response.StatusCode) && !isPrefetch)
         {
             var location = context.Response.Headers.Location.ToString();
             if (location.Contains('#'))

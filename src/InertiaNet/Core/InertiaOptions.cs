@@ -42,6 +42,12 @@ public class InertiaOptions
     public bool WithAllErrors { get; set; } = false;
 
     /// <summary>
+    /// Default Cache-Control max-age (in seconds) for prefetch responses.
+    /// The client may override this via the X-Inertia-Prefetch header.
+    /// </summary>
+    public int PrefetchCacheMaxAge { get; set; } = 10;
+
+    /// <summary>
     /// SSR (server-side rendering) configuration.
     /// </summary>
     public SsrOptions Ssr { get; set; } = new();
@@ -114,6 +120,12 @@ public class PagesOptions
     /// Directories to search for page component files.
     /// </summary>
     public string[] Paths { get; set; } = [];
+
+    /// <summary>
+    /// Paths to Vite/Mix manifest files to check for component existence.
+    /// Defaults to empty — populate with e.g. "wwwroot/build/manifest.json".
+    /// </summary>
+    public string[] ManifestPaths { get; set; } = [];
 
     /// <summary>
     /// Allowed file extensions for page components.

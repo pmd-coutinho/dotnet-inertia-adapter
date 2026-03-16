@@ -70,7 +70,13 @@ builder.Services.AddInertia(options =>
     options.EncryptHistory = false;        // Enable history encryption globally
     options.WithAllErrors = false;         // Return all validation errors per field
     options.ExposeSharedPropKeys = true;   // Include sharedProps key list in responses
+    options.PrefetchCacheMaxAge = 10;      // Default Cache-Control max-age for prefetch (seconds)
     options.Version = ManifestVersionStrategy.FromViteOrMix(webRootPath); // Asset versioning
+
+    // Page component validation (catches typos during development)
+    options.Pages.EnsurePagesExist = true;
+    options.Pages.Paths = ["src/pages"];                           // source tree (HMR/dev mode)
+    options.Pages.ManifestPaths = ["wwwroot/build/manifest.json"]; // build output (production)
 });
 ```
 
@@ -125,6 +131,37 @@ Register it:
 builder.Services.AddInertia<HandleInertiaRequests>();
 app.UseInertia<HandleInertiaRequests>();
 ```
+
+### Conditional Props
+
+Use `When()` / `Unless()` to conditionally share props:
+
+```csharp
+inertia.When(user.IsAdmin, "adminSettings", adminSettings);
+inertia.Unless(user.IsGuest, "notifications", async (sp, ct) =>
+    await sp.GetRequiredService<INotificationService>().GetAsync(ct));
+```
+
+### CSRF/XSRF Token
+
+When `IAntiforgery` is registered, InertiaNet automatically shares an `xsrfToken` prop on every request. Override `ShareCsrfToken` in your middleware subclass to customise or disable:
+
+```csharp
+protected override Task ShareCsrfToken(HttpContext context, IInertiaService inertia)
+{
+    // Disable automatic CSRF sharing
+    return Task.CompletedTask;
+}
+```
+
+### Navigation Context
+
+`RenderContext` (passed to `IProvidesInertiaProperties`) and `PropertyContext` (passed to `IProvidesInertiaProperty`) expose navigation state properties:
+
+- `IsInertiaRequest` — true for Inertia XHR requests
+- `IsPartialReload` — true when this is a partial reload for the current component (RenderContext only)
+- `Referer` — the Referer header value
+- `PartialComponent` — the partial-reload component name
 
 ---
 
@@ -299,14 +336,14 @@ inertia.ClearHistory();
 
 ## Validation
 
-Validation errors are shared automatically via the `errors` prop. Store them in TempData before redirecting:
+`InertiaValidationFilter` automatically serializes `ModelState` errors to TempData when a controller action redirects with invalid state. The middleware restores them as the `errors` prop on the next request:
 
 ```csharp
 [HttpPost]
 public async Task<IActionResult> Store([FromBody] CreateUserRequest request)
 {
     if (!ModelState.IsValid)
-        return this.Inertia("Users/Create"); // errors forwarded automatically
+        return RedirectToAction("Create"); // errors auto-forwarded via TempData
 
     await _userService.CreateAsync(request);
     return RedirectToAction("Index");
@@ -320,6 +357,59 @@ Scope errors for pages with multiple forms:
 ```javascript
 router.post('/users', data, { errorBag: 'createUser' });
 ```
+
+---
+
+## Precognition
+
+Precognition lets the frontend validate form data against server-side rules in real-time without submitting the form. When the client sends `Precognition: true`, the server runs model binding and validation only:
+
+- **Valid** → 204 No Content + `Precognition-Success: true`
+- **Invalid** → 422 Unprocessable Entity with validation errors as JSON
+
+```csharp
+[HttpPost]
+public IActionResult Store([FromBody] CreateUserRequest request)
+{
+    // Action body never executes for precognition requests —
+    // the InertiaPrecognitionFilter short-circuits after validation.
+    await _userService.CreateAsync(request);
+    return RedirectToAction("Index");
+}
+```
+
+The `InertiaPrecognitionFilter` is registered globally and runs before other filters.
+
+---
+
+## Event Hooks
+
+Implement `IInertiaEventHandler` to hook into the render pipeline:
+
+```csharp
+public class MyEventHandler : IInertiaEventHandler
+{
+    public Task OnAfterResolveProps(HttpContext context, Dictionary<string, object?> props)
+    {
+        // Modify resolved props before the page object is built
+        return Task.CompletedTask;
+    }
+
+    public Task OnBeforeRender(HttpContext context, InertiaPage page)
+    {
+        // Inspect or modify the page object before the response is written
+        return Task.CompletedTask;
+    }
+}
+```
+
+Register with:
+
+```csharp
+builder.Services.AddInertiaEventHandler<MyEventHandler>();
+```
+
+Multiple handlers can be registered — they run in registration order.
 
 ---
 

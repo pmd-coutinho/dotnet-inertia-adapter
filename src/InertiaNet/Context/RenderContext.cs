@@ -1,3 +1,4 @@
+using InertiaNet.Extensions;
 using Microsoft.AspNetCore.Http;
 
 namespace InertiaNet.Context;
@@ -22,4 +23,16 @@ public sealed class RenderContext
 
     /// <summary>The current HTTP request.</summary>
     public HttpRequest Request => HttpContext.Request;
+
+    /// <summary>The Referer header value, or null if absent.</summary>
+    public string? Referer => HttpContext.Request.Headers.Referer.ToString() is { Length: > 0 } r ? r : null;
+
+    /// <summary>The partial-reload component name, or null if this is not a partial reload.</summary>
+    public string? PartialComponent => Request.GetPartialComponent();
+
+    /// <summary>True when this is a partial reload for the current component.</summary>
+    public bool IsPartialReload => PartialComponent == Component;
+
+    /// <summary>True when this request is an Inertia XHR request.</summary>
+    public bool IsInertiaRequest => Request.IsInertia();
 }

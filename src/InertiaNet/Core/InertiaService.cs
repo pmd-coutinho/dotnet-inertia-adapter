@@ -4,6 +4,7 @@ using InertiaNet.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace InertiaNet.Core;
 
@@ -69,6 +70,20 @@ internal sealed class InertiaService : IInertiaService
         Func<IServiceProvider, CancellationToken, Task<IProvidesScrollMetadata?>>? metadata = null)
         => new(callback, wrapper, metadata);
 
+    // ── Conditional props ──────────────────────────────────────────────────────
+
+    public IInertiaService When(bool condition, string key, object? value)
+        => condition ? Share(key, value) : this;
+
+    public IInertiaService When(bool condition, string key, Func<IServiceProvider, CancellationToken, Task<object?>> callback)
+        => condition ? Share(key, (object?)callback) : this;
+
+    public IInertiaService Unless(bool condition, string key, object? value)
+        => !condition ? Share(key, value) : this;
+
+    public IInertiaService Unless(bool condition, string key, Func<IServiceProvider, CancellationToken, Task<object?>> callback)
+        => !condition ? Share(key, (object?)callback) : this;
+
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     public InertiaResult Render(string component, object? props = null)
@@ -121,7 +136,7 @@ internal sealed class InertiaService : IInertiaService
         if (obj is null) return [];
         var result = new Dictionary<string, object?>();
         foreach (var prop in obj.GetType().GetProperties())
-            result[prop.Name] = prop.GetValue(obj);
+            result[JsonNamingPolicy.CamelCase.ConvertName(prop.Name)] = prop.GetValue(obj);
         return result;
     }
 }

@@ -43,4 +43,13 @@ public static class HeaderNames
     /// Adapters should avoid side effects (session writes, etc.) when this header is present.
     /// </summary>
     public const string Purpose = "Purpose";
+
+    /// <summary>Cache duration hint (seconds) sent by the Inertia v3 client for prefetch requests.</summary>
+    public const string Prefetch = "X-Inertia-Prefetch";
+
+    /// <summary>Set to "true" by the client for precognition (validation-only) requests.</summary>
+    public const string Precognition = "Precognition";
+
+    /// <summary>Response header confirming precognition was processed.</summary>
+    public const string PrecognitionSuccess = "Precognition-Success";
 }

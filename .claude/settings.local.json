@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:inertiajs.com)",
+      "Bash(find /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet/dotnet-inertia-adapter/tests -name \"*.cs\" -not -path \"*/obj/*\" -type f 2>/dev/null | head -20)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api:*)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/resources/method.blade.ts')",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/resources/docblock.blade.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/src/BindingResolver.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/workbench/app/Http/Controllers/PostController.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/workbench/routes/web.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/src/GenerateCommand.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/PostController.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/*' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/DisallowedMethodNames.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/QueryParams.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/src/Parameter.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/InvokablePlusController.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/NamedRoutes.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/TwoRoutesSameAction.test.ts' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/inertiajs/demo-v3/main/config/wayfinder.php' 2>&1)",
+      "Bash(cd /tmp && curl -s 'https://raw.githubusercontent.com/laravel/wayfinder/main/tests/DomainController.test.ts' 2>&1)",
+      "Bash(ls /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet/dotnet-inertia-adapter/*.sln 2>/dev/null || echo \"no sln found\")",
+      "Bash(find /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet/src/FiscalAutopilot.Infrastructure -type f -name \"*.cs\" | grep -v \"obj/\" | xargs ls -la)",
+      "Bash(find /Users/pedrocoutinho -path \"*NuGet/Cache\" -o -path \"*nuget/packages\" 2>/dev/null | head -5)",
+      "Bash(find ~/.nuget/packages/wolverinefx -name \"*.dll\" -o -name \"*.xml\" 2>/dev/null | head -20)",
+      "Bash(find /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet -type f -name \"*test*\" -o -name \"*spec*\" 2>/dev/null | head -20)",
+      "Bash(dotnet build:*)",
+      "WebFetch(domain:laravel-news.com)",
+      "WebSearch",
+      "Bash(ls -la /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet/dotnet-inertia-adapter/src/InertiaNet.Pathfinder/*.cs 2>/dev/null | wc -l)",
+      "WebFetch(domain:hafiz.dev)",
+      "Bash(dotnet run:*)",
+      "Bash(cd /Users/pedrocoutinho/dev/fiscal-autopilot-dotnet/src/FiscalAutopilot.Web/ClientApp && npx tsc --noEmit --pretty 2>&1 | head -30)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(find:*)"
+    ]
+  }
+}
