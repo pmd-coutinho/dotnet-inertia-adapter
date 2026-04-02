@@ -2,6 +2,7 @@ using InertiaNet.Core;
 using InertiaNet.Ssr;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Razor.TagHelpers;
+using Microsoft.Extensions.Options;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -26,9 +27,13 @@ namespace InertiaNet.TagHelpers;
 public sealed class InertiaTagHelper : TagHelper
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly InertiaOptions _options;
 
-    public InertiaTagHelper(IHttpContextAccessor httpContextAccessor)
-        => _httpContextAccessor = httpContextAccessor;
+    public InertiaTagHelper(IHttpContextAccessor httpContextAccessor, IOptions<InertiaOptions> options)
+    {
+        _httpContextAccessor = httpContextAccessor;
+        _options = options.Value;
+    }
 
     /// <summary>The HTML id of the root div. Defaults to "app".</summary>
     public string Id { get; set; } = "app";
@@ -51,7 +56,7 @@ public sealed class InertiaTagHelper : TagHelper
         // ── Page data script ──────────────────────────────────────────────────
         if (page is not null)
         {
-            var json = JsonSerializer.Serialize(page, InertiaTagJsonOptions.Default);
+            var json = JsonSerializer.Serialize(page, InertiaTagJsonOptions.GetOptions(_options));
             output.Content.AppendHtml(
                 $"\n<script type=\"application/json\" data-page=\"{HtmlEncoder.Default.Encode(Id)}\">{json}</script>");
         }
@@ -102,4 +107,21 @@ internal static class InertiaTagJsonOptions
         // Prevent HTML encoding of characters like <, >, & inside the JSON script block
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+
+    /// <summary>
+    /// Returns user-configured options with UnsafeRelaxedJsonEscaping forced
+    /// (required for script tags), or the built-in defaults.
+    /// </summary>
+    public static JsonSerializerOptions GetOptions(InertiaOptions? options)
+    {
+        if (options?.JsonSerializerOptions is null)
+            return Default;
+
+        // Clone user options and force relaxed encoding for script tag safety
+        var cloned = new JsonSerializerOptions(options.JsonSerializerOptions)
+        {
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
+        return cloned;
+    }
 }

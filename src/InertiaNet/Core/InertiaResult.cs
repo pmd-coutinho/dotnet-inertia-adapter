@@ -188,7 +188,7 @@ public sealed class InertiaResult : IActionResult, IResult
 
     // ── JSON response (XHR Inertia request) ──────────────────────────────────
 
-    private static async Task WriteJsonResponseAsync(
+    private async Task WriteJsonResponseAsync(
         HttpContext httpContext, InertiaPage page, CancellationToken ct)
     {
         httpContext.Response.StatusCode = StatusCodes.Status200OK;
@@ -198,7 +198,7 @@ public sealed class InertiaResult : IActionResult, IResult
         await JsonSerializer.SerializeAsync(
             httpContext.Response.Body,
             page,
-            InertiaJsonOptions.Default,
+            InertiaJsonOptions.GetOptions(_options.Value),
             ct);
     }
 
@@ -332,4 +332,10 @@ internal static class InertiaJsonOptions
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = false,
     };
+
+    /// <summary>
+    /// Returns the user-configured options if set, otherwise the built-in defaults.
+    /// </summary>
+    public static JsonSerializerOptions GetOptions(InertiaOptions? options)
+        => options?.JsonSerializerOptions ?? Default;
 }

@@ -5,6 +5,7 @@ using InertiaNet.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Text.Json;
@@ -32,6 +33,7 @@ namespace InertiaNet.Middleware;
 public class InertiaMiddleware
 {
     private readonly RequestDelegate _next;
+    private static bool _tempDataWarningLogged;
 
     public InertiaMiddleware(RequestDelegate next) => _next = next;
 
@@ -140,6 +142,14 @@ public class InertiaMiddleware
         // ── Load errors & flash from TempData (forwarded from previous redirect) ──
         // Skip on prefetch to avoid consuming TempData that should be delivered on the real visit.
         var tempDataFactory = services.GetService<ITempDataDictionaryFactory>();
+        if (tempDataFactory is null && !_tempDataWarningLogged)
+        {
+            _tempDataWarningLogged = true;
+            var logger = services.GetService<ILoggerFactory>()?.CreateLogger<InertiaMiddleware>();
+            logger?.LogWarning(
+                "ITempDataDictionaryFactory is not registered. Flash data and validation error " +
+                "forwarding will be disabled. Call AddSession() and UseSession() to enable these features.");
+        }
         if (!isPrefetch && tempDataFactory is not null)
         {
             var tempData = tempDataFactory.GetTempData(context);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using System.Text.Json;
 
 namespace InertiaNet.Core;
 
@@ -56,6 +57,13 @@ public class InertiaOptions
     /// Page component validation configuration.
     /// </summary>
     public PagesOptions Pages { get; set; } = new();
+
+    /// <summary>
+    /// Custom JSON serializer options for Inertia page responses.
+    /// When null (default), uses camelCase property naming with null values ignored.
+    /// Custom converters (e.g. for <c>DateOnly</c>, domain types) can be added here.
+    /// </summary>
+    public JsonSerializerOptions? JsonSerializerOptions { get; set; }
 
     /// <summary>
     /// Custom exception handler delegate for Inertia responses (v3).

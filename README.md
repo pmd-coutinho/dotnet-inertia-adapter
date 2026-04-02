@@ -34,6 +34,19 @@ builder.Services.AddViteHelper();
 app.UseInertia(); // after UseSession / UseAuthentication
 ```
 
+### Session & TempData
+
+Flash data and validation error forwarding require ASP.NET Core session middleware:
+
+```csharp
+builder.Services.AddSession();
+// ...
+app.UseSession();
+app.UseInertia(); // must come after UseSession
+```
+
+Without session middleware, these features silently no-op. A warning is logged on the first request when `ITempDataDictionaryFactory` is not registered.
+
 ### 3. Create the root layout
 
 Add `Views/Shared/App.cshtml`:
@@ -348,6 +361,24 @@ public async Task<IActionResult> Store([FromBody] CreateUserRequest request)
     await _userService.CreateAsync(request);
     return RedirectToAction("Index");
 }
+```
+
+### Minimal API Validation
+
+For Minimal API endpoints, use the endpoint filter and `SetInertiaValidationErrors` extension:
+
+```csharp
+app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
+{
+    var errors = Validate(request);
+    if (errors.Count > 0)
+    {
+        ctx.SetInertiaValidationErrors(errors);
+        return Results.Redirect("/users/create");
+    }
+    // ...
+    return Results.Redirect("/users");
+}).WithInertiaValidation();
 ```
 
 ### Error Bags
