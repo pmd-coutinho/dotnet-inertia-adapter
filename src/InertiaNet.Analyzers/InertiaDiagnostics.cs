@@ -20,6 +20,14 @@ internal static class InertiaDiagnostics
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor MissingPageFile = new(
+        id: "INERTIA003",
+        title: "Inertia page component file was not found",
+        messageFormat: "Inertia component '{0}' was not found under the configured page paths: {1}",
+        category: "InertiaNet",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor UnsupportedMinimalApiTemplate = new(
         id: "PATHFINDER001",
         title: "Pathfinder cannot resolve this Minimal API route template",

@@ -24,28 +24,7 @@ public sealed class InertiaComponentNameAnalyzer : DiagnosticAnalyzer
         if (context.Node is not InvocationExpressionSyntax invocation)
             return;
 
-        if (context.SemanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method)
-            return;
-
-        var containingType = method.ReducedFrom?.ContainingType ?? method.ContainingType;
-        var containingTypeName = containingType.ToDisplayString();
-
-        var componentArgIndex = containingTypeName switch
-        {
-            "InertiaNet.Core.IInertiaService" when method.Name == "Render" => 0,
-            "InertiaNet.Extensions.InertiaResults" when method.Name == "Inertia" => 0,
-            "InertiaNet.Extensions.EndpointRouteBuilderExtensions" when method.Name == "MapInertia" => 1,
-            "InertiaNet.Extensions.EndpointRouteBuilderExtensions" when method.Name == "MapInertiaFallback" => 0,
-            "InertiaNet.Extensions.ControllerExtensions" when method.Name == "Inertia" => invocation.ArgumentList.Arguments.Count > 1 ? 1 : 0,
-            _ => -1,
-        };
-
-        if (componentArgIndex < 0 || invocation.ArgumentList.Arguments.Count <= componentArgIndex)
-            return;
-
-        var componentExpression = invocation.ArgumentList.Arguments[componentArgIndex].Expression;
-        var constantValue = context.SemanticModel.GetConstantValue(componentExpression);
-        if (!constantValue.HasValue || constantValue.Value is not string componentName)
+        if (!InertiaInvocationHelpers.TryGetLiteralComponentName(context, invocation, out var componentName, out var location))
             return;
 
         if (IsValidComponentName(componentName))
@@ -53,7 +32,7 @@ public sealed class InertiaComponentNameAnalyzer : DiagnosticAnalyzer
 
         context.ReportDiagnostic(Diagnostic.Create(
             InertiaDiagnostics.InvalidComponentName,
-            componentExpression.GetLocation(),
+            location,
             componentName));
     }
 

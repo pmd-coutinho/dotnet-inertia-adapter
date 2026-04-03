@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Pedro Coutinho",
+  "classifications": ["Web", "ASP.NET Core", "InertiaNet", "React"],
+  "identity": "InertiaNet.Templates.ReactStarter",
+  "name": "InertiaNet React Starter",
+  "shortName": "inertianet-react",
+  "sourceName": "InertiaNetStarter",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  }
+}

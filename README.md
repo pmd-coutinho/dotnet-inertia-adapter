@@ -273,6 +273,7 @@ Current diagnostics:
 
 - `INERTIA001` invalid Inertia component names
 - `INERTIA002` `JsonSerializerOptions` naming policies that do not affect the Inertia envelope
+- `INERTIA003` missing page component files when page validation is enabled
 - `PATHFINDER001` Minimal API route templates that Pathfinder cannot resolve statically
 - `PATHFINDER002` Minimal API method-group handlers that Pathfinder does not currently support
 
@@ -283,6 +284,31 @@ Add it to your app project like any other analyzer package:
   <PackageReference Include="InertiaNet.Analyzers" Version="0.1.0-alpha.1" PrivateAssets="all" />
 </ItemGroup>
 ```
+
+## Templates
+
+`InertiaNet.Templates` ships starter templates for React and Vue.
+
+Available templates:
+
+- `inertianet-react`
+- `inertianet-vue`
+
+Install and use them:
+
+```bash
+dotnet new install InertiaNet.Templates
+
+dotnet new inertianet-react -n MyReactApp
+dotnet new inertianet-vue -n MyVueApp
+```
+
+Each starter includes:
+
+- an ASP.NET Core app configured with `AddInertia`, `AddViteHelper`, and a root Razor view
+- a minimal frontend entrypoint and `Home` page
+- Vite configuration wired to `wwwroot`
+- `MapInertia` plus a fallback route for SPA-style navigation
 
 ---
 

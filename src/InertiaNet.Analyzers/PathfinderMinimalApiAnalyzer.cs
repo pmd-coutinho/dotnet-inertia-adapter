@@ -45,11 +45,27 @@ public sealed class PathfinderMinimalApiAnalyzer : DiagnosticAnalyzer
         }
 
         var handler = args[1].Expression;
-        if (handler is not ParenthesizedLambdaExpressionSyntax and not SimpleLambdaExpressionSyntax)
+        if (!IsSupportedHandler(context.SemanticModel, handler))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 InertiaDiagnostics.UnsupportedMinimalApiHandler,
                 args[1].GetLocation()));
         }
+    }
+
+    private static bool IsSupportedHandler(SemanticModel semanticModel, ExpressionSyntax handler)
+    {
+        if (handler is ParenthesizedLambdaExpressionSyntax or SimpleLambdaExpressionSyntax)
+            return true;
+
+        var symbolInfo = semanticModel.GetSymbolInfo(handler);
+        var symbol = symbolInfo.Symbol as IMethodSymbol
+            ?? symbolInfo.CandidateSymbols.OfType<IMethodSymbol>().SingleOrDefault();
+        if (symbol == null)
+            return false;
+
+        return symbol.DeclaringSyntaxReferences.Any(reference =>
+            reference.SyntaxTree == handler.SyntaxTree &&
+            reference.GetSyntax() is MethodDeclarationSyntax or LocalFunctionStatementSyntax);
     }
 }

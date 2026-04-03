@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PackageId>InertiaNet.Templates</PackageId>
+    <Version>0.1.0-alpha.1</Version>
+    <Authors>Pedro Coutinho</Authors>
+    <Description>dotnet new starter templates for InertiaNet React and Vue applications.</Description>
+    <PackageTags>inertia;inertiajs;dotnet;templates;react;vue;starter</PackageTags>
+    <PackageProjectUrl>https://github.com/pmd-coutinho/dotnet-inertia-adapter</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/pmd-coutinho/dotnet-inertia-adapter</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageType>Template</PackageType>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="templates\**\*" Exclude="templates\**\bin\**;templates\**\obj\**" Pack="true" PackagePath="content" />
+  </ItemGroup>
+</Project>

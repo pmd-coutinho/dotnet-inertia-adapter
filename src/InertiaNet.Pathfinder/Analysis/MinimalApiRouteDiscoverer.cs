@@ -89,20 +89,21 @@ static class MinimalApiRouteDiscoverer
             routeTemplate = RouteTemplateParser.StripConstraints(routeTemplate);
             var templateParamNames = templateParts.Select(p => p.Name.ToLowerInvariant()).ToHashSet();
 
-            // Second arg: handler (lambda or method group)
-            if (!IsSupportedHandler(args[1].Expression))
+            // Second arg: handler (lambda or supported same-file method group)
+            var handler = ResolveHandler(args[1].Expression, root);
+            if (handler == null)
             {
                 PathfinderDiagnostics.Report(
                     sourceFile,
                     sourceLine,
-                    $"Skipped minimal API route '{routeTemplate}' because only lambda handlers are currently supported.");
+                    $"Skipped minimal API route '{routeTemplate}' because the handler could not be resolved to a supported lambda or same-file method group.");
                 continue;
             }
 
-            var parameters = ExtractHandlerParameters(args[1].Expression, templateParamNames, templateParts);
+            var parameters = ExtractHandlerParameters(handler.Parameters, templateParamNames, templateParts);
 
             // Extract [FromBody] parameter type
-            var bodyTypeName = ExtractBodyTypeName(args[1].Expression);
+            var bodyTypeName = ExtractBodyTypeName(handler.Parameters);
 
             // Check for .WithName("...") fluent call
             var routeName = FindWithName(invocation);
@@ -352,23 +353,22 @@ static class MinimalApiRouteDiscoverer
         return string.Concat(parts);
     }
 
-    private static bool IsSupportedHandler(ExpressionSyntax handler)
-        => handler is ParenthesizedLambdaExpressionSyntax or SimpleLambdaExpressionSyntax;
+    private static ResolvedHandler? ResolveHandler(ExpressionSyntax handler, SyntaxNode root)
+    {
+        return handler switch
+        {
+            ParenthesizedLambdaExpressionSyntax lambda => new ResolvedHandler(lambda.ParameterList.Parameters),
+            SimpleLambdaExpressionSyntax simple => new ResolvedHandler([simple.Parameter]),
+            IdentifierNameSyntax identifier => ResolveMethodGroup(root, identifier.Identifier.Text),
+            MemberAccessExpressionSyntax memberAccess => ResolveMemberMethodGroup(root, memberAccess),
+            _ => null,
+        };
+    }
 
-    private static RouteParameter[] ExtractHandlerParameters(ExpressionSyntax handler,
+    private static RouteParameter[] ExtractHandlerParameters(IEnumerable<ParameterSyntax> paramList,
         HashSet<string> templateParamNames, List<RouteTemplateParser.TemplatePart> templateParts)
     {
         var parameters = new List<RouteParameter>();
-
-        IEnumerable<ParameterSyntax>? paramList = handler switch
-        {
-            ParenthesizedLambdaExpressionSyntax lambda => lambda.ParameterList.Parameters,
-            SimpleLambdaExpressionSyntax simple => [simple.Parameter],
-            _ => null
-        };
-
-        if (paramList == null)
-            return [];
 
         foreach (var param in paramList)
         {
@@ -498,17 +498,8 @@ static class MinimalApiRouteDiscoverer
         return null;
     }
 
-    private static string? ExtractBodyTypeName(ExpressionSyntax handler)
+    private static string? ExtractBodyTypeName(IEnumerable<ParameterSyntax> paramList)
     {
-        IEnumerable<ParameterSyntax>? paramList = handler switch
-        {
-            ParenthesizedLambdaExpressionSyntax lambda => lambda.ParameterList.Parameters,
-            SimpleLambdaExpressionSyntax simple => [simple.Parameter],
-            _ => null
-        };
-
-        if (paramList == null) return null;
-
         foreach (var param in paramList)
         {
             var hasFromBody = param.AttributeLists.SelectMany(al => al.Attributes)
@@ -530,6 +521,45 @@ static class MinimalApiRouteDiscoverer
                 };
             }
         }
+
+        return null;
+    }
+
+    private static ResolvedHandler? ResolveMethodGroup(SyntaxNode root, string methodName)
+    {
+        var localFunctions = root.DescendantNodes().OfType<LocalFunctionStatementSyntax>()
+            .Where(local => local.Identifier.Text == methodName)
+            .ToList();
+
+        if (localFunctions.Count == 1)
+            return new ResolvedHandler(localFunctions[0].ParameterList.Parameters);
+
+        var methods = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Where(method => method.Identifier.Text == methodName)
+            .ToList();
+
+        if (methods.Count == 1)
+            return new ResolvedHandler(methods[0].ParameterList.Parameters);
+
+        return null;
+    }
+
+    private static ResolvedHandler? ResolveMemberMethodGroup(SyntaxNode root, MemberAccessExpressionSyntax memberAccess)
+    {
+        if (memberAccess.Expression is not IdentifierNameSyntax container)
+            return null;
+
+        var matchingType = root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+            .FirstOrDefault(type => type.Identifier.Text == container.Identifier.Text);
+        if (matchingType == null)
+            return null;
+
+        var methods = matchingType.Members.OfType<MethodDeclarationSyntax>()
+            .Where(method => method.Identifier.Text == memberAccess.Name.Identifier.Text)
+            .ToList();
+
+        if (methods.Count == 1)
+            return new ResolvedHandler(methods[0].ParameterList.Parameters);
 
         return null;
     }
@@ -561,4 +591,6 @@ static class MinimalApiRouteDiscoverer
 
         return $"{verb}{baseName}{suffix}";
     }
+
+    private sealed record ResolvedHandler(SeparatedSyntaxList<ParameterSyntax> Parameters);
 }

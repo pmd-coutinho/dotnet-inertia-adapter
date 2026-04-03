@@ -166,11 +166,12 @@ Pathfinder discovers routes from three ASP.NET Core routing paradigms:
 - Minimal API groups assigned to variables via `var posts = app.MapGroup("/posts")`
 - Minimal API inline `MapGroup(...)` chains when every prefix segment can be resolved statically
 - Minimal API lambda handlers (`() => ...`, `(id) => ...`, `(id, [FromBody] dto) => ...`)
+- Same-file Minimal API method-group handlers (`MapGet(..., GetPost)`) when the target method can be resolved in the same C# file
 
 ### Explicitly Unsupported For Now
 
 - Minimal API route templates or group prefixes that depend on runtime values or other non-resolvable expressions
-- Minimal API method-group handlers for parameter/body discovery
+- Cross-file or otherwise non-resolvable Minimal API method-group handlers for parameter/body discovery
 
 Unsupported patterns are skipped with a warning instead of generating partial or misleading output.
 

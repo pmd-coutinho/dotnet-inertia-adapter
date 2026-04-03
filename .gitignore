@@ -38,6 +38,7 @@ coverage/
 
 # Publish output
 publish/
+artifacts/
 **/Properties/PublishProfiles/
 
 # ASP.NET Core Data Protection keys

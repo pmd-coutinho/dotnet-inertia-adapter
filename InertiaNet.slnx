@@ -4,6 +4,7 @@
     <Project Path="src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj" />
     <Project Path="src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj" />
     <Project Path="src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj" />
+    <Project Path="src/InertiaNet.Templates/InertiaNet.Templates.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/InertiaNet.Tests/InertiaNet.Tests.csproj" />

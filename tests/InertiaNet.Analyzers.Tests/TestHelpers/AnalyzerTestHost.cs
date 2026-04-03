@@ -13,11 +13,19 @@ namespace InertiaNet.Analyzers.Tests.TestHelpers;
 internal static class AnalyzerTestHost
 {
     public static async Task<IReadOnlyList<Diagnostic>> GetDiagnosticsAsync(string source, params DiagnosticAnalyzer[] analyzers)
+        => await GetDiagnosticsAsync([(string.Empty, source)], analyzers);
+
+    public static async Task<IReadOnlyList<Diagnostic>> GetDiagnosticsAsync(
+        IEnumerable<(string path, string source)> sources,
+        params DiagnosticAnalyzer[] analyzers)
     {
-        var tree = CSharpSyntaxTree.ParseText(source);
+        var trees = sources
+            .Select(source => CSharpSyntaxTree.ParseText(source.source, path: source.path))
+            .ToArray();
+
         var compilation = CSharpCompilation.Create(
             assemblyName: "AnalyzerTests",
-            syntaxTrees: [tree],
+            syntaxTrees: trees,
             references: GetReferences(),
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 

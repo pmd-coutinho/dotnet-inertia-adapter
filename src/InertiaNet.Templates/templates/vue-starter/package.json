@@ -1,0 +1,19 @@
+{
+  "name": "inertianet-vue-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@inertiajs/vue3": "^2.0.0",
+    "vue": "^3.5.12"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.4",
+    "laravel-vite-plugin": "^1.2.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

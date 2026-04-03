@@ -33,9 +33,9 @@ static string GetTemplate() => "/posts/{id:int}";
         PathfinderDiagnostics.Clear();
 
         const string source = """
-app.MapGet("/posts/{id:int}", GetPost);
+app.MapGet("/posts/{id:int}", ExternalHandlers.GetPost);
 
-static IResult GetPost(int id) => TypedResults.Ok();
+static class ExternalHandlers { }
 """;
 
         var tree = CSharpSyntaxTree.ParseText(source, path: "Program.cs");
@@ -44,7 +44,7 @@ static IResult GetPost(int id) => TypedResults.Ok();
 
         routes.Should().BeEmpty();
         PathfinderDiagnostics.Current.Should().ContainSingle(message =>
-            message.Contains("only lambda handlers are currently supported", StringComparison.Ordinal));
+            message.Contains("could not be resolved to a supported lambda or same-file method group", StringComparison.Ordinal));
     }
 
     [Fact]

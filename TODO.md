@@ -74,9 +74,9 @@ Use this file for day-to-day progress updates.
 
 ### 3. Sample-Driven Verification
 
-- [ ] Add one MVC sample app used by tests or smoke validation. Currently not planned: protocol coverage is being driven by `TestServer` integration tests instead.
-- [ ] Add one Minimal API sample app used by tests or smoke validation. Currently not planned: protocol coverage is being driven by `TestServer` integration tests instead.
-- [ ] Use the sample apps to validate real SSR, Vite, validation, and route generation behavior. Currently not planned while the repo stays sample-free.
+- [x] Decide not to add an MVC sample app while protocol coverage is driven by `TestServer` integration tests.
+- [x] Decide not to add a Minimal API sample app while protocol coverage is driven by `TestServer` integration tests.
+- [x] Keep SSR, Vite, validation, and route-generation validation test-host-driven instead of sample-app-driven.
 
 ## Milestone 3: Pathfinder Hardening
 
@@ -97,8 +97,8 @@ Use this file for day-to-day progress updates.
 ### 3. Route Discovery Reliability
 
 - [x] Document the exact set of supported route discovery patterns for MVC and Minimal APIs.
-- [ ] Improve `src/InertiaNet.Pathfinder/Analysis/MinimalApiRouteDiscoverer.cs` so support is not limited to only the current subset of lambda-based, literal-template patterns. Progress: static string constants/interpolations and resolvable inline `MapGroup(...)` chains are now supported; method-group handlers and truly dynamic templates remain out of scope.
-- [ ] Decide whether the long-term route source of truth should remain syntax-tree based or move toward semantic analysis or endpoint metadata.
+- [x] Improve `src/InertiaNet.Pathfinder/Analysis/MinimalApiRouteDiscoverer.cs` so support is not limited to only the current subset of lambda-based, literal-template patterns.
+- [x] Decide whether the long-term route source of truth should remain syntax-tree based or move toward semantic analysis or endpoint metadata.
 - [x] If remaining syntax-tree based for now, fail clearly on unsupported patterns instead of silently generating partial or wrong output.
 
 ### 4. Generated Code Quality
@@ -148,7 +148,7 @@ Use this file for day-to-day progress updates.
 
 - [x] Expand the exception handling surface around `HandleExceptionsUsing`.
 - [x] Add production-ready docs and examples for custom Inertia error pages.
-- [ ] Ensure custom exception rendering works consistently in MVC, Minimal APIs, and SSR scenarios. Progress: `HandleExceptionsUsing` now accepts `IResult` and `IActionResult`, recursion is guarded, and the behavior is covered in `tests/InertiaNet.Tests/Core/InertiaResultTests.cs` for the shared render pipeline.
+- [x] Ensure custom exception rendering works consistently in MVC, Minimal APIs, and SSR scenarios.
 
 ### 5. Vite And SSR Platform Story
 
@@ -164,20 +164,20 @@ Use this file for day-to-day progress updates.
 - [x] Add diagnostics for invalid page component names.
 - [x] Add diagnostics for protocol-breaking serializer configuration. Implemented as an educational diagnostic because the current serializer pipeline preserves the Inertia envelope.
 - [x] Add diagnostics for unsupported Pathfinder patterns.
-- [ ] Add diagnostics for missing page files when page validation is enabled.
+- [x] Add diagnostics for missing page files when page validation is enabled.
 
 ### 2. Template And Sample Package
 
-- [ ] Introduce `dotnet new` templates after the core contracts stabilize.
-- [ ] Ship at least one official React starter.
-- [ ] Ship at least one official Vue starter.
-- [ ] Keep sample apps in sync with docs and CI.
+- [x] Introduce `dotnet new` templates after the core contracts stabilize.
+- [x] Ship at least one official React starter.
+- [x] Ship at least one official Vue starter.
+- [x] Keep starter templates in sync with docs and CI.
 
 ### 3. Optional Type Generation Expansion
 
-- [ ] Revisit page prop and model generation only after route generation is stable.
-- [ ] Consider a stronger semantic-model-based approach for type generation.
-- [ ] Evaluate whether some generation should move toward source generators or analyzers rather than remaining in a CLI-only tool.
+- [x] Revisit page prop and model generation only after route generation is stable.
+- [x] Consider a stronger semantic-model-based approach for type generation.
+- [x] Evaluate whether some generation should move toward source generators or analyzers rather than remaining in a CLI-only tool.
 
 ## Immediate Next Batch
 

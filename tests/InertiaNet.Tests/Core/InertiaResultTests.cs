@@ -5,6 +5,7 @@ using InertiaNet.Support;
 using InertiaNet.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -136,6 +137,29 @@ public class InertiaResultTests
         (await context.ReadResponseBodyAsync()).Should().Be("Boom");
     }
 
+    [Fact]
+    public async Task ExecuteResultAsync_ShouldUseCustomExceptionHandler_WhenItReturnsMvcResult()
+    {
+        var (result, context) = CreateInertiaResult(
+            component: "Users/Index",
+            pageProps: new()
+            {
+                ["boom"] = new Func<IServiceProvider, CancellationToken, Task<object?>>((_, _) =>
+                    throw new InvalidOperationException("Boom"))
+            },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (_, _) => new StaticActionResult(StatusCodes.Status418ImATeapot, "Handled by MVC");
+            });
+
+        var actionContext = new ActionContext(context, new RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        await result.ExecuteResultAsync(actionContext);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status418ImATeapot);
+        context.Response.ContentType.Should().Be("text/plain");
+        (await context.ReadResponseBodyAsync()).Should().Be("Handled by MVC");
+    }
+
     private sealed class StaticResult(int statusCode, string body) : IResult
     {
         public async Task ExecuteAsync(HttpContext httpContext)
@@ -143,6 +167,16 @@ public class InertiaResultTests
             httpContext.Response.StatusCode = statusCode;
             httpContext.Response.ContentType = "text/plain";
             await httpContext.Response.WriteAsync(body);
+        }
+    }
+
+    private sealed class StaticActionResult(int statusCode, string body) : IActionResult
+    {
+        public async Task ExecuteResultAsync(ActionContext context)
+        {
+            context.HttpContext.Response.StatusCode = statusCode;
+            context.HttpContext.Response.ContentType = "text/plain";
+            await context.HttpContext.Response.WriteAsync(body);
         }
     }
 }
