@@ -94,14 +94,13 @@ jobs:
       - name: Read Shared Package Versions
         id: versions
         run: |
-          echo "core_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
-          echo "template_version=$(dotnet msbuild src/InertiaNet.Templates/InertiaNet.Templates.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
+          echo "platform_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
 
       - name: Pack InertiaNet
         run: dotnet pack src/InertiaNet/InertiaNet.csproj --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Stage Templates Package Sources
-        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.core_version }}"
+        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.platform_version }}"
 
       - name: Pack Templates
         run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
@@ -154,7 +153,7 @@ jobs:
       - name: Read Shared Package Versions
         id: versions
         run: |
-          echo "core_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
+          echo "platform_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
 
       - name: Restore package
         run: dotnet restore InertiaNet.slnx
@@ -172,7 +171,7 @@ jobs:
         run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Stage Templates Package Sources
-        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.core_version }}"
+        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.platform_version }}"
 
       - name: Pack Templates
         run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts

@@ -8,63 +8,114 @@ on:
       - completed
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      release_kind:
+        description: "Choose stable to publish an exact platform version, or prerelease to publish a manual prerelease build"
+        required: true
+        type: choice
+        default: stable
+        options:
+          - stable
+          - prerelease
+      version_prefix:
+        description: "Optional platform version prefix override (defaults to Directory.Build.props)"
+        required: false
+        type: string
+      version_suffix:
+        description: "Optional prerelease suffix override (ignored for stable releases)"
+        required: false
+        type: string
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: publish-prerelease
+  group: publish-packages
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Publish prerelease packages
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    name: Publish packages
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     environment: nuget-prerelease
 
     steps:
-      - name: Checkout
+      - name: Checkout triggering commit
+        if: github.event_name == 'workflow_run'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout selected branch
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Compute prerelease versions
+      - name: Compute package version
         id: versions
+        shell: bash
         run: |
-          core_prefix=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:InertiaNetCoreVersionPrefix)
-          tooling_prefix=$(dotnet msbuild src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj -getProperty:InertiaNetToolingVersionPrefix)
-          suffix="alpha.${{ github.event.workflow_run.run_number }}"
+          default_prefix=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:InertiaNetPlatformVersionPrefix)
 
-          echo "core_version=${core_prefix}-${suffix}" >> "$GITHUB_OUTPUT"
-          echo "tooling_version=${tooling_prefix}-${suffix}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            release_kind="prerelease"
+            version_prefix="$default_prefix"
+            version_suffix="alpha.${{ github.event.workflow_run.run_number }}"
+          else
+            release_kind="${{ github.event.inputs.release_kind }}"
+            version_prefix="${{ github.event.inputs.version_prefix }}"
+            version_suffix="${{ github.event.inputs.version_suffix }}"
+
+            if [ -z "$version_prefix" ]; then
+              version_prefix="$default_prefix"
+            fi
+
+            if [ "$release_kind" = "prerelease" ] && [ -z "$version_suffix" ]; then
+              version_suffix="alpha.${{ github.run_number }}"
+            fi
+          fi
+
+          if [ "$release_kind" = "stable" ]; then
+            platform_version="$version_prefix"
+          else
+            if [ -z "$version_suffix" ]; then
+              echo "Prerelease publishing requires a version suffix." >&2
+              exit 1
+            fi
+
+            platform_version="$version_prefix-$version_suffix"
+          fi
+
+          echo "release_kind=$release_kind" >> "$GITHUB_OUTPUT"
+          echo "platform_version=$platform_version" >> "$GITHUB_OUTPUT"
 
       - name: Restore
         run: dotnet restore InertiaNet.slnx
 
       - name: Pack InertiaNet
-        run: dotnet pack src/InertiaNet/InertiaNet.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.core_version }} -o artifacts
+        run: dotnet pack src/InertiaNet/InertiaNet.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
       - name: Pack Pathfinder Tool
-        run: dotnet pack src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.tooling_version }} -o artifacts
+        run: dotnet pack src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
       - name: Pack Pathfinder Build
-        run: dotnet pack src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.tooling_version }} -o artifacts
+        run: dotnet pack src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
       - name: Pack Analyzers
-        run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.tooling_version }} -o artifacts
+        run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
       - name: Stage Templates Package Sources
-        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.core_version }}"
+        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.platform_version }}"
 
       - name: Pack Templates
-        run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.tooling_version }} -o artifacts
+        run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
       - name: NuGet login
         id: login

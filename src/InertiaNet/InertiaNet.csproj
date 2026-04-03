@@ -11,7 +11,7 @@
 
     <!-- NuGet metadata -->
     <PackageId>InertiaNet</PackageId>
-    <Version>$(InertiaNetCorePackageVersion)</Version>
+    <Version>$(InertiaNetPlatformPackageVersion)</Version>
     <Authors>Pedro Coutinho</Authors>
     <Description>Compatibility-first ASP.NET Core adapter for Inertia.js v3 with support for deferred props, merge props, once props, infinite scroll, history encryption, SSR, Vite integration, and testing utilities.</Description>
     <PackageTags>inertia;inertiajs;dotnet;aspnetcore;minimal-api;mvc;razor;react;vue;svelte;ssr;vite</PackageTags>

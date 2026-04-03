@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <PackageId>InertiaNet.Templates</PackageId>
-    <Version>$(InertiaNetToolingPackageVersion)</Version>
+    <Version>$(InertiaNetPlatformPackageVersion)</Version>
     <Authors>Pedro Coutinho</Authors>
     <Description>dotnet new starter templates for InertiaNet React and Vue applications.</Description>
     <PackageTags>inertia;inertiajs;dotnet;templates;react;vue;starter</PackageTags>

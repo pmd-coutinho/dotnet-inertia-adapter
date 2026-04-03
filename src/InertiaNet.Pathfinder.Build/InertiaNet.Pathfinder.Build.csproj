@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <PackageId>InertiaNet.Pathfinder.Build</PackageId>
-    <Version>$(InertiaNetToolingPackageVersion)</Version>
+    <Version>$(InertiaNetPlatformPackageVersion)</Version>
     <Authors>Pedro Coutinho</Authors>
     <Description>MSBuild integration package for running the Pathfinder .NET tool during build and dotnet watch workflows.</Description>
     <PackageTags>inertia;inertiajs;dotnet;aspnetcore;msbuild;pathfinder;wayfinder</PackageTags>

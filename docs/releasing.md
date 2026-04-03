@@ -1,14 +1,25 @@
 # Releasing
 
-## Prerelease Publishing
+## Publishing Model
 
-This repository publishes prerelease packages automatically from successful `master` branch merges using **NuGet trusted publishing**.
+This repository uses one **platform-wide version train** for all publishable packages:
+
+- `InertiaNet`
+- `InertiaNet.Pathfinder`
+- `InertiaNet.Pathfinder.Build`
+- `InertiaNet.Analyzers`
+- `InertiaNet.Templates`
+
+Publishing is split into two modes:
+
+- **Prerelease**: published automatically after successful `master` merges
+- **Stable**: published manually from GitHub Actions via `workflow_dispatch`
 
 The publish workflow is:
 
 - `.github/workflows/publish-prerelease.yml`
 
-It runs after the `CI` workflow succeeds on a `master` push, requests a short-lived NuGet API key via GitHub OIDC, and publishes all packable packages to nuget.org.
+It uses **NuGet trusted publishing** through GitHub OIDC and publishes all packable packages to nuget.org.
 
 ## Trusted Publishing Setup
 
@@ -37,52 +48,60 @@ No long-lived NuGet API key secret is required.
 
 ## Shared Versioning
 
-Version prefixes are centralized in `Directory.Build.props`:
+The shared platform version is centralized in `Directory.Build.props`:
 
-- `InertiaNetCoreVersionPrefix`
-- `InertiaNetToolingVersionPrefix`
+- `InertiaNetPlatformVersionPrefix`
+- `InertiaNetDefaultVersionSuffix`
+- `InertiaNetPlatformPackageVersion`
 
-Current package families:
+All publishable packages now use the same resolved package version.
 
-- Core adapter family:
-  - `InertiaNet`
-- Tooling family:
-  - `InertiaNet.Pathfinder`
-  - `InertiaNet.Pathfinder.Build`
-  - `InertiaNet.Analyzers`
-  - `InertiaNet.Templates`
-
-Default local versions still use the shared `alpha.1` suffix.
+Default local builds still use the shared `alpha.1` suffix.
 
 ## CI Prerelease Version Format
 
 On every successful `master` merge, the publish workflow computes:
 
-- core: `<InertiaNetCoreVersionPrefix>-alpha.<CI run number>`
-- tooling: `<InertiaNetToolingVersionPrefix>-alpha.<CI run number>`
+- `<InertiaNetPlatformVersionPrefix>-alpha.<CI run number>`
 
 Examples:
 
 - `InertiaNet` -> `3.0.0-alpha.142`
-- `InertiaNet.Pathfinder` -> `0.1.0-alpha.142`
+- `InertiaNet.Pathfinder` -> `3.0.0-alpha.142`
+- `InertiaNet.Templates` -> `3.0.0-alpha.142`
 
 The repository itself is not mutated during publishing. CI computes the final versions at pack time.
+
+## Manual Stable Publishing
+
+Stable releases use the same workflow file via `workflow_dispatch`.
+
+Run the workflow manually and choose:
+
+- `release_kind = stable`
+- `version_prefix = 3.0.0` (or the next platform version you intend to publish)
+
+That publishes all packages at the exact stable version:
+
+- `InertiaNet` -> `3.0.0`
+- `InertiaNet.Pathfinder` -> `3.0.0`
+- `InertiaNet.Pathfinder.Build` -> `3.0.0`
+- `InertiaNet.Analyzers` -> `3.0.0`
+- `InertiaNet.Templates` -> `3.0.0`
+
+You can also use `workflow_dispatch` with `release_kind = prerelease` if you ever need a manual prerelease.
 
 ## Templates And Version Stamping
 
 `InertiaNet.Templates` contains starter projects that depend on `InertiaNet`.
 
-Before packing templates, CI stages the template sources and replaces the internal `__INERTIANET_PACKAGE_VERSION__` token with the just-computed core prerelease version. This keeps generated starter projects aligned with the package version published in the same workflow.
+Before packing templates, CI stages the template sources and replaces the internal `__INERTIANET_PACKAGE_VERSION__` token with the just-computed platform version. This keeps generated starter projects aligned with the package version published in the same workflow.
 
 The staging helper script is:
 
 - `scripts/stage-templates.sh`
 
-## Stable Releases
+## Notes
 
-Stable publishing is intentionally not automated yet.
-
-Recommended future direction:
-
-- keep prerelease publishing on every `master` merge
-- add a separate tag-driven stable workflow later
+- Keep `publish-prerelease.yml` as the trusted-publishing workflow file unless you also update the nuget.org trusted publishing policy.
+- Stable releases are intentionally manual.
