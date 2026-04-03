@@ -7,7 +7,7 @@ builder.Services.AddInertia(options =>
 {
     options.RootView = "App";
     options.Pages.EnsurePagesExist = true;
-    options.Pages.Paths = ["src/pages"];
+    options.Pages.Paths = ["ClientApp/src/pages"];
 });
 builder.Services.AddViteHelper(options =>
 {

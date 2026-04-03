@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PathfinderEnabled Condition="'$(PathfinderEnabled)' == ''">false</PathfinderEnabled>
     <PathfinderProjectPath Condition="'$(PathfinderProjectPath)' == ''">$(MSBuildProjectDirectory)</PathfinderProjectPath>
-    <PathfinderOutputPath Condition="'$(PathfinderOutputPath)' == ''">$(MSBuildProjectDirectory)/pathfinder</PathfinderOutputPath>
+    <PathfinderOutputPath Condition="'$(PathfinderOutputPath)' == ''">$(MSBuildProjectDirectory)/ClientApp/pathfinder</PathfinderOutputPath>
     <PathfinderGenerateActions Condition="'$(PathfinderGenerateActions)' == ''">true</PathfinderGenerateActions>
     <PathfinderGenerateRoutes Condition="'$(PathfinderGenerateRoutes)' == ''">true</PathfinderGenerateRoutes>
     <PathfinderGenerateForms Condition="'$(PathfinderGenerateForms)' == ''">true</PathfinderGenerateForms>

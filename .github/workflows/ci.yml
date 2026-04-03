@@ -106,6 +106,9 @@ jobs:
       - name: Generate Vue Starter
         run: dotnet new inertianet-vue -n SmokeVue -o artifacts/smoke-vue
 
+      - name: Verify ClientApp Workspace Layout
+        run: test -f artifacts/smoke-react/ClientApp/package.json && test -f artifacts/smoke-react/ClientApp/vite.config.ts && test -f artifacts/smoke-vue/ClientApp/package.json && test -f artifacts/smoke-vue/ClientApp/vite.config.ts
+
       - name: Restore And Build React Starter
         run: dotnet restore artifacts/smoke-react/SmokeReact.csproj --source artifacts --source https://api.nuget.org/v3/index.json && dotnet build artifacts/smoke-react/SmokeReact.csproj --no-restore
 

@@ -70,6 +70,22 @@ Add `Views/Shared/App.cshtml`:
 </html>
 ```
 
+The recommended frontend workspace lives under `ClientApp/`:
+
+```text
+YourApp/
+  ClientApp/
+    package.json
+    vite.config.ts
+    tsconfig.json
+    src/
+      app.tsx
+      pages/
+  Program.cs
+  Views/
+  wwwroot/
+```
+
 ---
 
 ## Configuration
@@ -88,7 +104,7 @@ builder.Services.AddInertia(options =>
 
     // Page component validation (catches typos during development)
     options.Pages.EnsurePagesExist = true;
-    options.Pages.Paths = ["src/pages"];                           // source tree (HMR/dev mode)
+    options.Pages.Paths = ["ClientApp/src/pages"];                 // source tree (HMR/dev mode)
     options.Pages.ManifestPaths = ["wwwroot/build/manifest.json"]; // build output (production)
 });
 ```
@@ -137,6 +153,7 @@ InertiaNet expects the same Vite conventions in development and production:
 - development uses `PublicDirectory/HotFile` to discover the active dev server
 - production uses `PublicDirectory/BuildDirectory/ManifestFilename` to resolve hashed assets
 - SSR hot mode uses the same hot-file location, so keep Vite and ASP.NET aligned on `PublicDirectory`
+- Vite itself is expected to run from `ClientApp/`, while built assets still land in `wwwroot/build`
 
 ---
 
@@ -306,7 +323,7 @@ dotnet new inertianet-vue -n MyVueApp
 Each starter includes:
 
 - an ASP.NET Core app configured with `AddInertia`, `AddViteHelper`, and a root Razor view
-- a minimal frontend entrypoint and `Home` page
+- a `ClientApp/` frontend workspace with a minimal entrypoint and `Home` page
 - Vite configuration wired to `wwwroot`
 - `MapInertia` plus a fallback route for SPA-style navigation
 
@@ -636,7 +653,7 @@ The `vite-input` tag helper:
 Use `laravel-vite-plugin` (or any plugin that writes a `hot` file):
 
 ```js
-// vite.config.ts
+// ClientApp/vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import laravel from 'laravel-vite-plugin';
@@ -651,6 +668,8 @@ export default defineConfig({
   ],
 });
 ```
+
+The entry paths used by `<vite-input>` remain relative to the frontend workspace root, so a `ClientApp/vite.config.ts` file can still expose entries like `src/app.tsx` or `src/app.ts`.
 
 ---
 

@@ -11,6 +11,8 @@ public sealed class InertiaPageFileAnalyzer : DiagnosticAnalyzer
     private static readonly string[] DefaultExtensions = ["js", "jsx", "ts", "tsx", "vue", "svelte"];
     private static readonly string[] ConventionalPagePaths =
     [
+        "ClientApp/src/pages",
+        "ClientApp/src/Pages",
         "src/pages",
         "src/Pages",
         "Pages",

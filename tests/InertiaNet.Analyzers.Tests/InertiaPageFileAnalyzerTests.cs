@@ -23,7 +23,7 @@ class Demo
     void Configure(InertiaOptions options, IInertiaService inertia)
     {
         options.Pages.EnsurePagesExist = true;
-        options.Pages.Paths = ["src/pages"];
+        options.Pages.Paths = ["ClientApp/src/pages"];
 
         inertia.Render("Users/Index");
     }
@@ -48,8 +48,8 @@ class Demo
         try
         {
             File.WriteAllText(Path.Combine(tempDirectory.FullName, "Demo.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
-            Directory.CreateDirectory(Path.Combine(tempDirectory.FullName, "src", "pages", "Users"));
-            File.WriteAllText(Path.Combine(tempDirectory.FullName, "src", "pages", "Users", "Index.tsx"), "export default {}\n");
+            Directory.CreateDirectory(Path.Combine(tempDirectory.FullName, "ClientApp", "src", "pages", "Users"));
+            File.WriteAllText(Path.Combine(tempDirectory.FullName, "ClientApp", "src", "pages", "Users", "Index.tsx"), "export default {}\n");
 
             var sourcePath = Path.Combine(tempDirectory.FullName, "Program.cs");
             var source = """
@@ -60,7 +60,7 @@ class Demo
     void Configure(InertiaOptions options, IInertiaService inertia)
     {
         options.Pages.EnsurePagesExist = true;
-        options.Pages.Paths = ["src/pages"];
+        options.Pages.Paths = ["ClientApp/src/pages"];
 
         inertia.Render("Users/Index");
     }
@@ -94,6 +94,41 @@ class Demo
 {
     void Configure(InertiaOptions options, IInertiaService inertia)
     {
+        inertia.Render("Users/Index");
+    }
+}
+""";
+
+            var diagnostics = await AnalyzerTestHost.GetDiagnosticsAsync([(sourcePath, source)], new InertiaPageFileAnalyzer());
+
+            diagnostics.Should().BeEmpty();
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ShouldUseClientAppSrcPages_AsTheDefaultConvention_WhenPathsAreNotConfigured()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("inertia-page-analyzer-");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory.FullName, "Demo.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+            Directory.CreateDirectory(Path.Combine(tempDirectory.FullName, "ClientApp", "src", "pages", "Users"));
+            File.WriteAllText(Path.Combine(tempDirectory.FullName, "ClientApp", "src", "pages", "Users", "Index.tsx"), "export default {}\n");
+
+            var sourcePath = Path.Combine(tempDirectory.FullName, "Program.cs");
+            var source = """
+using InertiaNet.Core;
+
+class Demo
+{
+    void Configure(InertiaOptions options, IInertiaService inertia)
+    {
+        options.Pages.EnsurePagesExist = true;
         inertia.Render("Users/Index");
     }
 }
