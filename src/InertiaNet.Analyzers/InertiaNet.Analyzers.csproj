@@ -8,7 +8,7 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <NoPackageAnalysis>true</NoPackageAnalysis>
     <PackageId>InertiaNet.Analyzers</PackageId>
-    <Version>0.1.0-alpha.1</Version>
+    <Version>$(InertiaNetToolingPackageVersion)</Version>
     <Authors>Pedro Coutinho</Authors>
     <Description>Roslyn analyzers for InertiaNet component naming and Pathfinder-compatible Minimal API patterns.</Description>
     <PackageTags>inertia;inertiajs;dotnet;roslyn;analyzers;aspnetcore;pathfinder</PackageTags>

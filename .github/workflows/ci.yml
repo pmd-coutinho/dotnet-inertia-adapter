@@ -91,14 +91,23 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Read Shared Package Versions
+        id: versions
+        run: |
+          echo "core_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
+          echo "template_version=$(dotnet msbuild src/InertiaNet.Templates/InertiaNet.Templates.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
+
       - name: Pack InertiaNet
         run: dotnet pack src/InertiaNet/InertiaNet.csproj --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
 
+      - name: Stage Templates Package Sources
+        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.core_version }}"
+
       - name: Pack Templates
-        run: dotnet pack src/InertiaNet.Templates/InertiaNet.Templates.csproj --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
+        run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Install Templates
-        run: dotnet new install artifacts/InertiaNet.Templates.0.1.0-alpha.1.nupkg
+        run: dotnet new install "artifacts/InertiaNet.Templates.${{ steps.versions.outputs.template_version }}.nupkg"
 
       - name: Generate React Starter
         run: dotnet new inertianet-react -n SmokeReact -o artifacts/smoke-react
@@ -133,6 +142,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Read Shared Package Versions
+        id: versions
+        run: |
+          echo "core_version=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:Version)" >> "$GITHUB_OUTPUT"
+
       - name: Restore package
         run: dotnet restore InertiaNet.slnx
 
@@ -148,8 +162,11 @@ jobs:
       - name: Pack Analyzers
         run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
 
+      - name: Stage Templates Package Sources
+        run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.core_version }}"
+
       - name: Pack Templates
-        run: dotnet pack src/InertiaNet.Templates/InertiaNet.Templates.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+        run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

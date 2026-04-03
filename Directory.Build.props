@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <InertiaNetCoreVersionPrefix>3.0.0</InertiaNetCoreVersionPrefix>
+    <InertiaNetToolingVersionPrefix>0.1.0</InertiaNetToolingVersionPrefix>
+    <InertiaNetDefaultVersionSuffix>alpha.1</InertiaNetDefaultVersionSuffix>
+
+    <InertiaNetCorePackageVersion Condition="'$(InertiaNetCorePackageVersion)' == ''">$(InertiaNetCoreVersionPrefix)-$(InertiaNetDefaultVersionSuffix)</InertiaNetCorePackageVersion>
+    <InertiaNetToolingPackageVersion Condition="'$(InertiaNetToolingPackageVersion)' == ''">$(InertiaNetToolingVersionPrefix)-$(InertiaNetDefaultVersionSuffix)</InertiaNetToolingPackageVersion>
+  </PropertyGroup>
+</Project>

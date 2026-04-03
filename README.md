@@ -327,6 +327,8 @@ Each starter includes:
 - Vite configuration wired to `wwwroot`
 - `MapInertia` plus a fallback route for SPA-style navigation
 
+For prerelease publishing and trusted publishing setup, see `docs/releasing.md`.
+
 ---
 
 ## Props

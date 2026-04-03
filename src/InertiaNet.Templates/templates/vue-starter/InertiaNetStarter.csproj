@@ -6,6 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="InertiaNet" Version="3.0.0-alpha.1" />
+    <PackageReference Include="InertiaNet" Version="__INERTIANET_PACKAGE_VERSION__" />
   </ItemGroup>
 </Project>
