@@ -126,6 +126,12 @@ jobs:
       - name: Verify ClientApp Workspace Layout
         run: test -f artifacts/smoke-react/ClientApp/package.json && test -f artifacts/smoke-react/ClientApp/vite.config.ts && test -f artifacts/smoke-react/.devcontainer/devcontainer.json && test -f artifacts/smoke-react/wwwroot/.gitkeep && test -f artifacts/smoke-vue/ClientApp/package.json && test -f artifacts/smoke-vue/ClientApp/vite.config.ts && test -f artifacts/smoke-vue/.devcontainer/devcontainer.json && test -f artifacts/smoke-vue/wwwroot/.gitkeep
 
+      - name: Install React Starter Frontend Dependencies
+        run: cd artifacts/smoke-react/ClientApp && npm install
+
+      - name: Install Vue Starter Frontend Dependencies
+        run: cd artifacts/smoke-vue/ClientApp && npm install
+
       - name: Restore And Build React Starter
         run: dotnet restore artifacts/smoke-react/SmokeReact.csproj --source artifacts --source https://api.nuget.org/v3/index.json && dotnet build artifacts/smoke-react/SmokeReact.csproj --no-restore
 
