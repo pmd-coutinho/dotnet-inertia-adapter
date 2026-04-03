@@ -5,4 +5,12 @@
 
     <InertiaNetPlatformPackageVersion Condition="'$(InertiaNetPlatformPackageVersion)' == ''">$(InertiaNetPlatformVersionPrefix)-$(InertiaNetDefaultVersionSuffix)</InertiaNetPlatformPackageVersion>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsPackable)' != 'false' and Exists('$(MSBuildThisFileDirectory)assets/nuget/icon.png')">
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false' and Exists('$(MSBuildThisFileDirectory)assets/nuget/icon.png')">
+    <None Include="$(MSBuildThisFileDirectory)assets/nuget/icon.png" Pack="true" PackagePath="\" Link="icon.png" Visible="false" />
+  </ItemGroup>
 </Project>
