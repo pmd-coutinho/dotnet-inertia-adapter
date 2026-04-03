@@ -107,7 +107,16 @@ jobs:
         run: dotnet pack "$RUNNER_TEMP/InertiaNet.Templates/InertiaNet.Templates.csproj" --configuration Release -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Install Templates
-        run: dotnet new install "artifacts/InertiaNet.Templates.${{ steps.versions.outputs.template_version }}.nupkg"
+        shell: bash
+        run: |
+          shopt -s nullglob nocaseglob
+          packages=(artifacts/InertiaNet.Templates.*.nupkg)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "Expected exactly one templates package, found ${#packages[@]}" >&2
+            ls -la artifacts >&2
+            exit 1
+          fi
+          dotnet new install "${packages[0]}"
 
       - name: Generate React Starter
         run: dotnet new inertianet-react -n SmokeReact -o artifacts/smoke-react
