@@ -1,6 +1,17 @@
 # InertiaNet.Pathfinder
 
-Type-safe route generation for ASP.NET Core + Inertia.js applications. Scans your C# source code with Roslyn and generates TypeScript route helpers, form helpers, page prop types, model interfaces, and enum definitions — so your frontend stays in sync with your backend without any manual maintenance.
+Type-safe route generation for ASP.NET Core + Inertia.js applications. Scans your C# source code with Roslyn and generates TypeScript route helpers, form helpers, page prop types, model interfaces, and enum definitions.
+
+Pathfinder is currently **route-generation-first**:
+
+- Stable core: route helpers, named routes, query support, URL defaults, `.form()` helpers, and runtime parameter validation.
+- Experimental: page prop types, model generation, enum generation, and Wolverine discovery.
+
+Pathfinder is also **named-endpoint-first** for long-term .NET stability:
+
+- Prefer `[HttpGet(Name = "Users.Show")]`, `[Route(Name = "...")]`, or Minimal API `.WithName("...")`
+- Treat generated named routes as the durable contract between backend routing and frontend navigation
+- Use controller/action file generation as a convenience layer, not the only stable integration point
 
 Inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder).
 
@@ -10,13 +21,13 @@ Inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder).
 
 ## Features
 
-- **Route discovery** from MVC controllers, Minimal APIs, and Wolverine HTTP endpoints
+### Stable
+
+- **Route discovery** from MVC controllers and Minimal APIs
 - **TypeScript action helpers** with `{ url, method }` return type and per-method variants
+- **Wayfinder-compatible output** — generated helpers can be passed directly to Inertia `Link`, `Form`, `router.visit()`, and `useForm().submit()`
 - **Form helpers** (`.form()`) with automatic HTML method spoofing for PUT/PATCH/DELETE
 - **Named routes** generated from `[Name = "..."]` attributes and `.WithName("...")`
-- **Page props type generation** from `Inertia.Render()` calls — typed interfaces per component
-- **Model/entity type generation** for classes referenced in page props
-- **C# enum to TypeScript** const objects with union types
 - **Query parameter support** with `query` and `mergeQuery` options, including nested objects
 - **URL defaults** with `setUrlDefaults()` and `addUrlDefault()` for locale prefixes and global parameters
 - **Runtime parameter validation** — throws descriptive errors for missing required route parameters
@@ -26,6 +37,13 @@ Inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder).
 - **Barrel files** (`index.ts`) auto-generated for clean imports
 - **Watch mode** (`--watch`) with file system watcher and debounce
 - **Skip patterns** to exclude controllers/routes from generation
+
+### Experimental
+
+- **Page props type generation** from `Inertia.Render()` calls — typed interfaces per component
+- **Model/entity type generation** for classes referenced in page props
+- **C# enum to TypeScript** const objects with union types
+- **Wolverine endpoint discovery**
 
 ---
 
@@ -131,11 +149,30 @@ pathfinder/
     └── index.ts
 ```
 
+Action files stay flat for the common case (`PostsController` -> `actions/posts.ts`).
+If two controllers would otherwise generate the same file name, Pathfinder keeps namespace segments in the path to avoid collisions (for example `Admin.PostsController` -> `actions/admin/posts.ts`).
+
 ---
 
 ## Route Discovery
 
 Pathfinder discovers routes from three ASP.NET Core routing paradigms:
+
+### Currently Supported Patterns
+
+- MVC controllers using attribute routes with string-literal templates
+- Minimal APIs using `MapGet` / `MapPost` / `MapPut` / `MapPatch` / `MapDelete`
+- Minimal API route templates resolved from string literals, constants, and simple interpolated/concatenated static strings
+- Minimal API groups assigned to variables via `var posts = app.MapGroup("/posts")`
+- Minimal API inline `MapGroup(...)` chains when every prefix segment can be resolved statically
+- Minimal API lambda handlers (`() => ...`, `(id) => ...`, `(id, [FromBody] dto) => ...`)
+
+### Explicitly Unsupported For Now
+
+- Minimal API route templates or group prefixes that depend on runtime values or other non-resolvable expressions
+- Minimal API method-group handlers for parameter/body discovery
+
+Unsupported patterns are skipped with a warning instead of generating partial or misleading output.
 
 ### MVC Controllers
 
@@ -204,10 +241,14 @@ export default Posts
 ### Minimal APIs
 
 ```csharp
-var posts = app.MapGroup("api/posts");
-posts.MapGet("/", handler).WithName("Posts.Index");
-posts.MapGet("/{id:int}", handler);
-posts.MapPost("/", handler);
+const string ApiPrefix = "/api";
+const string PostsPrefix = "/posts";
+const string ShowTemplate = "/{id:int}";
+
+var posts = app.MapGroup(ApiPrefix).MapGroup(PostsPrefix);
+posts.MapGet("/", () => TypedResults.Ok()).WithName("Posts.Index");
+posts.MapGet(ShowTemplate, (int id) => TypedResults.Ok());
+posts.MapPost("/", ([FromBody] CreatePostRequest request) => TypedResults.Ok());
 ```
 
 Generates `pathfinder/actions/minimalApi.ts` with the same helper format.
@@ -238,6 +279,8 @@ Every generated action provides:
 | `action.definition` | Static route metadata: `{ methods, url }` |
 | `action.get()` / `.post()` / etc. | Per-method helpers with `method` typed as const |
 | `action.form()` | Returns `{ action, method, data? }` for HTML `<form>` attributes |
+
+If a request payload type can be discovered and generated, `action.body` is typed to that generated model. If Pathfinder cannot resolve the body type safely, it falls back to `unknown` instead of emitting an invalid TypeScript identifier.
 
 ### Parameter Formats
 
@@ -356,14 +399,14 @@ Pathfinder validates required route parameters at runtime. If a required paramet
 ```typescript
 // Route template: /posts/{id}
 Posts.show({})
-// Throws: "Missing required parameter(s) 'id' for route 'show' (/posts/{id})."
+// Throws: "Missing required parameter 'id' for route 'show' (/posts/{id})."
 
 // Multiple missing parameters
 Posts.comment({})
-// Throws: "Missing required parameter(s) 'id', 'slug' for route 'comment' (/posts/{id}/comments/{slug})."
+// Throws: "Missing required parameters 'id', 'slug' for route 'comment' (/posts/{id}/comments/{slug})."
 ```
 
-Optional parameters (marked with `?` in the route template or with a default value in C#) are not validated.
+Optional parameters (marked with `?` in the route template or with a default value in C#) are not required, but when you omit them they must be omitted from the end of the argument list.
 
 ---
 
@@ -569,8 +612,55 @@ pathfinder -p ./src/MyApp -o ./src/frontend/pathfinder --watch
 The watcher:
 - Monitors all `.cs` files recursively (excludes `obj/` and `bin/`)
 - Debounces changes (default 300ms, configurable with `--debounce`)
-- Re-runs the full discovery and generation pipeline on each change
+- Coalesces bursts of file changes into a single regeneration
+- Never overlaps regenerations; changes that arrive during a run are queued for the next cycle
+- Falls back to a full regeneration if the file watcher overflows
 - Stops on `Ctrl+C`
+
+### Build Integration
+
+Pathfinder also ships an opt-in MSBuild companion package for build and `dotnet watch build` workflows.
+
+1. Install Pathfinder as a local tool:
+
+```bash
+dotnet new tool-manifest
+dotnet tool install InertiaNet.Pathfinder
+dotnet tool restore
+```
+
+2. Add the build package to your ASP.NET Core project:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="0.1.0-alpha.1" PrivateAssets="all" />
+</ItemGroup>
+```
+
+3. Enable it in your project file:
+
+```xml
+<PropertyGroup>
+  <PathfinderEnabled>true</PathfinderEnabled>
+  <PathfinderOutputPath>$(MSBuildProjectDirectory)/ClientApp/pathfinder</PathfinderOutputPath>
+</PropertyGroup>
+```
+
+Available MSBuild properties:
+
+- `PathfinderEnabled`
+- `PathfinderProjectPath`
+- `PathfinderOutputPath`
+- `PathfinderGenerateActions`
+- `PathfinderGenerateRoutes`
+- `PathfinderGenerateForms`
+- `PathfinderSkipPatterns`
+- `PathfinderClean`
+- `PathfinderQuiet`
+- `PathfinderToolCommand`
+- `PathfinderBeforeTargets`
+
+Once enabled, `dotnet build` will run Pathfinder before compile, and `dotnet watch build` will rerun it automatically as your C# files change.
 
 ---
 
@@ -722,8 +812,8 @@ function addUrlDefault(key: string, value: string): void
 // Apply URL defaults to args (used internally, also exported for custom use)
 function applyUrlDefaults(args: Record<string, unknown>): Record<string, unknown>
 
-// Validate that required parameters are present (used internally, throws on missing)
-function validateParameters(routeName: string, url: string, required: string[], args: Record<string, unknown>): void
+// Validate required parameters and optional trailing omission order (used internally)
+function validateParameters(routeName: string, url: string, required: string[], args: Record<string, unknown>, optional?: string[]): void
 ```
 
 ---

@@ -5,11 +5,6 @@ namespace InertiaNet.Pathfinder.Generation;
 
 static class PropsFileWriter
 {
-    private static readonly HashSet<string> BuiltInTsTypes = new()
-    {
-        "string", "number", "boolean", "unknown", "null", "undefined", "any", "void", "never", "object"
-    };
-
     public static void Write(string outputDir, List<PagePropsInfo> pageProps, List<ModelInfo> models)
     {
         if (pageProps.Count == 0)
@@ -21,7 +16,7 @@ static class PropsFileWriter
         // Build a set of known model names for import resolution
         var modelNames = models.Select(m => m.ShortName).ToHashSet();
 
-        foreach (var page in pageProps)
+        foreach (var page in pageProps.OrderBy(page => page.ComponentName, StringComparer.Ordinal))
         {
             var sb = new StringBuilder();
             var interfaceName = SanitizeInterfaceName(page.ComponentName) + "Props";
@@ -59,28 +54,11 @@ static class PropsFileWriter
 
     private static void CollectModelReferences(string tsType, HashSet<string> modelNames, HashSet<string> references)
     {
-        // Strip array suffix, nullable, etc.
-        var cleaned = tsType
-            .Replace("[]", "")
-            .Replace(" | null", "")
-            .Replace(" | undefined", "");
-
-        if (BuiltInTsTypes.Contains(cleaned)) return;
-
-        // Handle Record<K, V> and other generics
-        if (cleaned.Contains('<'))
+        foreach (var reference in TypeReferenceCollector.Collect(tsType))
         {
-            var inner = cleaned[(cleaned.IndexOf('<') + 1)..cleaned.LastIndexOf('>')];
-            foreach (var part in inner.Split(','))
-                CollectModelReferences(part.Trim(), modelNames, references);
-            return;
+            if (modelNames.Contains(reference))
+                references.Add(reference);
         }
-
-        // Handle inline object types
-        if (cleaned.StartsWith('{')) return;
-
-        if (modelNames.Contains(cleaned))
-            references.Add(cleaned);
     }
 
     private static string SanitizeInterfaceName(string componentName)

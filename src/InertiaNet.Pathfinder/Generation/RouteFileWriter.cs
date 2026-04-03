@@ -8,6 +8,13 @@ static class RouteFileWriter
     public static void Write(string outputDir, List<RouteInfo> allRoutes, bool generateForms = true,
         List<ModelInfo>? models = null)
     {
+        allRoutes = allRoutes
+            .OrderBy(route => route.RouteName ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(route => route.ActionName, StringComparer.Ordinal)
+            .ThenBy(route => route.UrlTemplate, StringComparer.Ordinal)
+            .ThenBy(route => string.Join(',', route.HttpMethods), StringComparer.Ordinal)
+            .ToList();
+
         // Group routes by their name segments
         var namedRoutes = allRoutes
             .Where(r => r.RouteName != null)
@@ -19,7 +26,7 @@ static class RouteFileWriter
                     : "";
             });
 
-        foreach (var group in namedRoutes)
+        foreach (var group in namedRoutes.OrderBy(group => group.Key, StringComparer.Ordinal))
         {
             var dirPath = string.IsNullOrEmpty(group.Key)
                 ? Path.Combine(outputDir, "routes")
@@ -32,14 +39,19 @@ static class RouteFileWriter
                 : 1 + group.Key.Count(c => c == '/') + 1;
             var importPrefix = string.Concat(Enumerable.Repeat("../", segmentCount));
 
-            var routeList = group.ToList();
+            var routeList = group
+                .OrderBy(route => route.RouteName ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(route => route.UrlTemplate, StringComparer.Ordinal)
+                .ThenBy(route => route.ActionName, StringComparer.Ordinal)
+                .ThenBy(route => string.Join(',', route.HttpMethods), StringComparer.Ordinal)
+                .ToList();
 
             var sb = new StringBuilder();
             sb.AppendLine($"import {{ type RouteDefinition, type RouteDefinitionInfo, type RouteQueryOptions, type FormDefinition, queryParams, applyUrlDefaults, validateParameters }} from '{importPrefix}index'");
 
             // Collect model imports for body types
             var modelImports = CollectModelImports(routeList, models);
-            foreach (var modelName in modelImports)
+            foreach (var modelName in modelImports.OrderBy(name => name, StringComparer.Ordinal))
             {
                 sb.AppendLine($"import type {{ {modelName} }} from '{importPrefix}models/{modelName}'");
             }
@@ -86,6 +98,7 @@ static class RouteFileWriter
                     var argsType = BuildArgsType(allParams);
                     var allOptional = allParams.All(p => p.IsOptional);
                     var argsOptional = allOptional ? "?" : "";
+                    var requiredParams = allParams.Where(p => !p.IsOptional).Select(p => p.Name).ToArray();
                     var optionalParams = allParams.Where(p => p.IsOptional).Select(p => p.Name).ToArray();
 
                     sb.AppendLine($"export const {exportName} = (args{argsOptional}: {argsType}, options?: RouteQueryOptions): RouteDefinition<\"{defaultMethod}\"> => ({{");
@@ -113,11 +126,19 @@ static class RouteFileWriter
                     // Apply URL defaults
                     sb.AppendLine($"    args = applyUrlDefaults(args ?? {{}}) as typeof args");
 
-                    // Validate optional parameters (Wayfinder semantics)
-                    if (optionalParams.Length > 0)
+                    // Validate route parameters after URL defaults are applied.
+                    if (requiredParams.Length > 0 || optionalParams.Length > 0)
                     {
-                        var optionalArray = "[" + string.Join(", ", optionalParams.Select(p => $"\"{p}\"")) + "]";
-                        sb.AppendLine($"    validateParameters(args as Record<string, unknown>, {optionalArray})");
+                        var requiredArray = "[" + string.Join(", ", requiredParams.Select(p => $"\"{p}\"")) + "]";
+                        if (optionalParams.Length > 0)
+                        {
+                            var optionalArray = "[" + string.Join(", ", optionalParams.Select(p => $"\"{p}\"")) + "]";
+                            sb.AppendLine($"    validateParameters(\"{route.RouteName}\", {exportName}.definition.url, {requiredArray}, args as Record<string, unknown>, {optionalArray})");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"    validateParameters(\"{route.RouteName}\", {exportName}.definition.url, {requiredArray}, args as Record<string, unknown>)");
+                        }
                     }
 
                     var urlExpr = $"{exportName}.definition.url";
@@ -211,7 +232,7 @@ static class RouteFileWriter
         if (models != null && models.Any(m => m.ShortName == clrTypeName))
             return clrTypeName;
 
-        return clrTypeName;
+        return "unknown";
     }
 
     private static HashSet<string> CollectModelImports(List<RouteInfo> routes, List<ModelInfo>? models)
@@ -239,13 +260,13 @@ static class RouteFileWriter
     {
         var formSafe = FormSafeMethod(defaultMethod);
         var needsSpoofing = formSafe != defaultMethod;
-        var spoofedMethod = defaultMethod.ToUpperInvariant();
+        var spoofedMethod = defaultMethod;
 
         if (hasParams)
         {
             sb.AppendLine($"{jsName}.form = (args{argsOptional}: {argsType}, options?: RouteQueryOptions): FormDefinition<\"{formSafe}\"> => ({{");
             if (needsSpoofing)
-                sb.AppendLine($"    action: {jsName}.url(args, {{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{spoofedMethod}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{formSafe}\",");
+                sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{formSafe}\", data: {{ _method: \"{spoofedMethod}\" }},");
             else
                 sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{formSafe}\",");
             sb.AppendLine("})");
@@ -259,7 +280,7 @@ static class RouteFileWriter
                     var verbNeedsSpoofing = verbFormSafe != method;
                     sb.AppendLine($"{jsName}.form.{method} = (args{argsOptional}: {argsType}, options?: RouteQueryOptions): FormDefinition<\"{verbFormSafe}\"> => ({{");
                     if (verbNeedsSpoofing)
-                        sb.AppendLine($"    action: {jsName}.url(args, {{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{method.ToUpperInvariant()}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{verbFormSafe}\",");
+                        sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{verbFormSafe}\", data: {{ _method: \"{method}\" }},");
                     else
                         sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{verbFormSafe}\",");
                     sb.AppendLine("})");
@@ -270,7 +291,7 @@ static class RouteFileWriter
         {
             sb.AppendLine($"{jsName}.form = (options?: RouteQueryOptions): FormDefinition<\"{formSafe}\"> => ({{");
             if (needsSpoofing)
-                sb.AppendLine($"    action: {jsName}.url({{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{spoofedMethod}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{formSafe}\",");
+                sb.AppendLine($"    action: {jsName}.url(options), method: \"{formSafe}\", data: {{ _method: \"{spoofedMethod}\" }},");
             else
                 sb.AppendLine($"    action: {jsName}.url(options), method: \"{formSafe}\",");
             sb.AppendLine("})");
@@ -284,7 +305,7 @@ static class RouteFileWriter
                     var verbNeedsSpoofing = verbFormSafe != method;
                     sb.AppendLine($"{jsName}.form.{method} = (options?: RouteQueryOptions): FormDefinition<\"{verbFormSafe}\"> => ({{");
                     if (verbNeedsSpoofing)
-                        sb.AppendLine($"    action: {jsName}.url({{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{method.ToUpperInvariant()}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{verbFormSafe}\",");
+                        sb.AppendLine($"    action: {jsName}.url(options), method: \"{verbFormSafe}\", data: {{ _method: \"{method}\" }},");
                     else
                         sb.AppendLine($"    action: {jsName}.url(options), method: \"{verbFormSafe}\",");
                     sb.AppendLine("})");

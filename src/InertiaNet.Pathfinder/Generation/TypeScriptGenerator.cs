@@ -8,6 +8,24 @@ static class TypeScriptGenerator
         List<PagePropsInfo> pageProps, List<ModelInfo> models, PathfinderConfig config)
     {
         var outputDir = Path.GetFullPath(config.OutputPath);
+        var orderedRoutes = routes
+            .OrderBy(route => route.ControllerFullName, StringComparer.Ordinal)
+            .ThenBy(route => route.RouteName ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(route => route.ActionName, StringComparer.Ordinal)
+            .ThenBy(route => route.UrlTemplate, StringComparer.Ordinal)
+            .ThenBy(route => string.Join(',', route.HttpMethods), StringComparer.Ordinal)
+            .ToList();
+        var orderedEnums = enums
+            .OrderBy(enumInfo => enumInfo.FullName, StringComparer.Ordinal)
+            .ThenBy(enumInfo => enumInfo.ShortName, StringComparer.Ordinal)
+            .ToList();
+        var orderedPageProps = pageProps
+            .OrderBy(page => page.ComponentName, StringComparer.Ordinal)
+            .ToList();
+        var orderedModels = models
+            .OrderBy(model => model.FullName, StringComparer.Ordinal)
+            .ThenBy(model => model.ShortName, StringComparer.Ordinal)
+            .ToList();
 
         if (config.Clean && Directory.Exists(outputDir))
             Directory.Delete(outputDir, recursive: true);
@@ -17,7 +35,7 @@ static class TypeScriptGenerator
         // 1. Always write runtime file
         RuntimeFileWriter.Write(outputDir);
 
-        if (routes.Count == 0 && enums.Count == 0 && pageProps.Count == 0 && models.Count == 0)
+        if (orderedRoutes.Count == 0 && orderedEnums.Count == 0 && orderedPageProps.Count == 0 && orderedModels.Count == 0)
         {
             if (!config.Quiet)
                 Console.WriteLine("Warning: No routes found.");
@@ -28,7 +46,7 @@ static class TypeScriptGenerator
         // 2. Generate action files (grouped by controller)
         if (config.GenerateActions)
         {
-            var controllerGroups = routes
+            var controllerGroups = orderedRoutes
                 .Where(r => r.ControllerFullName != "__MinimalApi__")
                 .GroupBy(r => r.ControllerFullName);
 
@@ -40,11 +58,11 @@ static class TypeScriptGenerator
                     group.First().ControllerShortName,
                     group.ToList(),
                     config.GenerateForms,
-                    models);
+                    orderedModels);
             }
 
             // Minimal API routes get their own "file"
-            var minimalApiRoutes = routes
+            var minimalApiRoutes = orderedRoutes
                 .Where(r => r.ControllerFullName == "__MinimalApi__")
                 .ToList();
 
@@ -56,29 +74,29 @@ static class TypeScriptGenerator
                     "MinimalApi",
                     minimalApiRoutes,
                     config.GenerateForms,
-                    models);
+                    orderedModels);
             }
         }
 
         // 3. Generate named route files
         if (config.GenerateRoutes)
         {
-            var namedRoutes = routes.Where(r => r.RouteName != null).ToList();
+            var namedRoutes = orderedRoutes.Where(r => r.RouteName != null).ToList();
             if (namedRoutes.Count > 0)
-                RouteFileWriter.Write(outputDir, namedRoutes, config.GenerateForms, models);
+                RouteFileWriter.Write(outputDir, namedRoutes, config.GenerateForms, orderedModels);
         }
 
         // 4. Generate enum files
-        if (enums.Count > 0)
-            EnumFileWriter.Write(outputDir, enums);
+        if (orderedEnums.Count > 0)
+            EnumFileWriter.Write(outputDir, orderedEnums);
 
         // 5. Generate model type files (before props, so props can import them)
-        if (models.Count > 0)
-            ModelFileWriter.Write(outputDir, models);
+        if (orderedModels.Count > 0)
+            ModelFileWriter.Write(outputDir, orderedModels);
 
         // 6. Generate page props type files
-        if (pageProps.Count > 0)
-            PropsFileWriter.Write(outputDir, pageProps, models);
+        if (orderedPageProps.Count > 0)
+            PropsFileWriter.Write(outputDir, orderedPageProps, orderedModels);
 
         // 7. Generate barrel files
         BarrelFileWriter.WriteAll(outputDir);

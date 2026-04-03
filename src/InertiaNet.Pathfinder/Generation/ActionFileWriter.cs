@@ -8,6 +8,12 @@ static class ActionFileWriter
     public static void Write(string outputDir, string controllerFullName, string controllerShortName,
         List<RouteInfo> actions, bool generateForms = true, List<ModelInfo>? models = null)
     {
+        actions = actions
+            .OrderBy(action => action.ActionName, StringComparer.Ordinal)
+            .ThenBy(action => action.UrlTemplate, StringComparer.Ordinal)
+            .ThenBy(action => string.Join(',', action.HttpMethods), StringComparer.Ordinal)
+            .ToList();
+
         // Compute relative import path from the file location to the output root index.ts
         var relativePath = NameUtils.ControllerToPath(controllerFullName);
         var depth = relativePath.Count(c => c == '/') + 1; // +1 for the "actions" directory
@@ -18,7 +24,7 @@ static class ActionFileWriter
 
         // Collect model imports needed for body types
         var modelImports = CollectModelImports(actions, models);
-        foreach (var (modelName, _) in modelImports)
+        foreach (var (modelName, _) in modelImports.OrderBy(model => model.ModelName, StringComparer.Ordinal))
         {
             sb.AppendLine($"import type {{ {modelName} }} from '{importPrefix}models/{modelName}'");
         }
@@ -119,8 +125,8 @@ static class ActionFileWriter
         if (models != null && models.Any(m => m.ShortName == clrTypeName))
             return clrTypeName;
 
-        // Unknown complex type — use the raw name (user can provide the import)
-        return clrTypeName;
+        // Unknown complex type — prefer a safe fallback over invalid TypeScript identifiers.
+        return "unknown";
     }
 
     private static List<(string ModelName, string ShortName)> CollectModelImports(
@@ -137,7 +143,10 @@ static class ActionFileWriter
                 needed.Add(action.BodyTypeName);
         }
 
-        return needed.Select(n => (n, n)).ToList();
+        return needed
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .Select(n => (n, n))
+            .ToList();
     }
 
     private static void WriteJsDoc(StringBuilder sb, RouteInfo action)
@@ -191,6 +200,7 @@ static class ActionFileWriter
         var argsType = BuildArgsType(allParams);
         var allOptional = allParams.All(p => p.IsOptional);
         var argsOptional = allOptional ? "?" : "";
+        var requiredParams = allParams.Where(p => !p.IsOptional).Select(p => p.Name).ToArray();
         var optionalParams = allParams.Where(p => p.IsOptional).Select(p => p.Name).ToArray();
 
         sb.AppendLine($"export const {jsName} = (");
@@ -219,11 +229,19 @@ static class ActionFileWriter
         // Apply URL defaults
         sb.AppendLine($"    args = applyUrlDefaults(args ?? {{}}) as typeof args");
 
-        // Validate optional parameters (Wayfinder semantics: optional params must be missing from the end)
-        if (optionalParams.Length > 0)
+        // Validate route parameters after URL defaults are applied.
+        if (requiredParams.Length > 0 || optionalParams.Length > 0)
         {
-            var optionalArray = "[" + string.Join(", ", optionalParams.Select(p => $"\"{p}\"")) + "]";
-            sb.AppendLine($"    validateParameters(args as Record<string, unknown>, {optionalArray})");
+            var requiredArray = "[" + string.Join(", ", requiredParams.Select(p => $"\"{p}\"")) + "]";
+            if (optionalParams.Length > 0)
+            {
+                var optionalArray = "[" + string.Join(", ", optionalParams.Select(p => $"\"{p}\"")) + "]";
+                sb.AppendLine($"    validateParameters(\"{jsName}\", {jsName}.definition.url, {requiredArray}, args as Record<string, unknown>, {optionalArray})");
+            }
+            else
+            {
+                sb.AppendLine($"    validateParameters(\"{jsName}\", {jsName}.definition.url, {requiredArray}, args as Record<string, unknown>)");
+            }
         }
 
         // Build URL replacement chain
@@ -272,13 +290,13 @@ static class ActionFileWriter
     {
         var formSafe = FormSafeMethod(defaultMethod);
         var needsSpoofing = formSafe != defaultMethod;
-        var spoofedMethod = defaultMethod.ToUpperInvariant();
+        var spoofedMethod = defaultMethod;
 
         if (hasParams)
         {
             sb.AppendLine($"{jsName}.form = (args{argsOptional}: {argsType}, options?: RouteQueryOptions): FormDefinition<\"{formSafe}\"> => ({{");
             if (needsSpoofing)
-                sb.AppendLine($"    action: {jsName}.url(args, {{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{spoofedMethod}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{formSafe}\",");
+                sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{formSafe}\", data: {{ _method: \"{spoofedMethod}\" }},");
             else
                 sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{formSafe}\",");
             sb.AppendLine("})");
@@ -290,7 +308,7 @@ static class ActionFileWriter
                 var verbNeedsSpoofing = verbFormSafe != method;
                 sb.AppendLine($"{jsName}.form.{method} = (args{argsOptional}: {argsType}, options?: RouteQueryOptions): FormDefinition<\"{verbFormSafe}\"> => ({{");
                 if (verbNeedsSpoofing)
-                    sb.AppendLine($"    action: {jsName}.url(args, {{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{method.ToUpperInvariant()}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{verbFormSafe}\",");
+                    sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{verbFormSafe}\", data: {{ _method: \"{method}\" }},");
                 else
                     sb.AppendLine($"    action: {jsName}.url(args, options), method: \"{verbFormSafe}\",");
                 sb.AppendLine("})");
@@ -300,7 +318,7 @@ static class ActionFileWriter
         {
             sb.AppendLine($"{jsName}.form = (options?: RouteQueryOptions): FormDefinition<\"{formSafe}\"> => ({{");
             if (needsSpoofing)
-                sb.AppendLine($"    action: {jsName}.url({{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{spoofedMethod}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{formSafe}\",");
+                sb.AppendLine($"    action: {jsName}.url(options), method: \"{formSafe}\", data: {{ _method: \"{spoofedMethod}\" }},");
             else
                 sb.AppendLine($"    action: {jsName}.url(options), method: \"{formSafe}\",");
             sb.AppendLine("})");
@@ -312,7 +330,7 @@ static class ActionFileWriter
                 var verbNeedsSpoofing = verbFormSafe != method;
                 sb.AppendLine($"{jsName}.form.{method} = (options?: RouteQueryOptions): FormDefinition<\"{verbFormSafe}\"> => ({{");
                 if (verbNeedsSpoofing)
-                    sb.AppendLine($"    action: {jsName}.url({{ [options?.mergeQuery ? 'mergeQuery' : 'query']: {{ _method: \"{method.ToUpperInvariant()}\", ...(options?.query ?? options?.mergeQuery ?? {{}}) }} }}), method: \"{verbFormSafe}\",");
+                    sb.AppendLine($"    action: {jsName}.url(options), method: \"{verbFormSafe}\", data: {{ _method: \"{method}\" }},");
                 else
                     sb.AppendLine($"    action: {jsName}.url(options), method: \"{verbFormSafe}\",");
                 sb.AppendLine("})");

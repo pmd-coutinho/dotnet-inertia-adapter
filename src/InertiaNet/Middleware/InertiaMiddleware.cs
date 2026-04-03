@@ -61,9 +61,10 @@ public class InertiaMiddleware
     protected virtual string? GetVersion(HttpContext context) => null;
 
     /// <summary>
-    /// Override to change the root Razor view name (default: "App").
+    /// Override to change the root Razor view name for the current request.
+    /// Return <c>null</c> (default) to use <see cref="InertiaOptions.RootView"/>.
     /// </summary>
-    protected virtual string GetRootView(HttpContext context) => "App";
+    protected virtual string? GetRootView(HttpContext context) => null;
 
     /// <summary>
     /// Called when the Inertia version sent by the client differs from
@@ -123,10 +124,11 @@ public class InertiaMiddleware
         var services = context.RequestServices;
         var options = services.GetRequiredService<IOptions<InertiaOptions>>().Value;
 
-        // Apply RootView / Version overrides via options (allow subclass to win)
-        var version = GetVersion(context) ?? options.Version?.Invoke();
-        var rootView = GetRootView(context);
-        if (rootView != "App") options.RootView = rootView;
+        var requestSettings = new InertiaRequestSettings(
+            rootView: GetRootView(context) ?? options.RootView,
+            version: GetVersion(context) ?? options.Version?.Invoke());
+
+        context.Items[InertiaContextKeys.RequestSettingsKey] = requestSettings;
 
         var inertia = services.GetRequiredService<IInertiaService>();
 
@@ -207,10 +209,10 @@ public class InertiaMiddleware
         }
 
         // ── Version check (Inertia-only, GET requests) ────────────────────────
-        if (isInertia && context.Request.Method == HttpMethods.Get && version is not null)
+        if (isInertia && context.Request.Method == HttpMethods.Get && requestSettings.Version is not null)
         {
             var clientVersion = context.Request.GetInertiaVersion();
-            if (clientVersion is not null && clientVersion != version)
+            if (clientVersion is not null && clientVersion != requestSettings.Version)
             {
                 await OnVersionChange(context);
                 return;

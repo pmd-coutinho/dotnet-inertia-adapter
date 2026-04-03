@@ -19,6 +19,7 @@ if (!config.Quiet)
 var csFiles = Directory.GetFiles(projectPath, "*.cs", SearchOption.AllDirectories)
     .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
                 !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+    .OrderBy(f => f, StringComparer.Ordinal)
     .ToArray();
 
 if (!config.Quiet)
@@ -28,6 +29,8 @@ if (!config.Quiet)
 var allRoutes = new List<RouteInfo>();
 var allEnums = new List<EnumInfo>();
 var trees = new List<Microsoft.CodeAnalysis.SyntaxTree>();
+
+PathfinderDiagnostics.Clear();
 
 foreach (var file in csFiles)
 {
@@ -63,11 +66,14 @@ var treesArray = trees.ToArray();
 var allPageProps = PropsDiscoverer.Discover(treesArray);
 
 // Discover models referenced by page props
-var allModels = ModelDiscoverer.Discover(treesArray, allPageProps);
+var allModels = ModelDiscoverer.Discover(treesArray, allPageProps, allRoutes);
 
 if (!config.Quiet)
 {
     Console.WriteLine($"Pathfinder: Discovered {allRoutes.Count} routes, {allEnums.Count} enums, {allPageProps.Count} page types, {allModels.Count} models.");
+
+    foreach (var diagnostic in PathfinderDiagnostics.Current.OrderBy(message => message, StringComparer.Ordinal))
+        Console.WriteLine($"Pathfinder: Warning: {diagnostic}");
 }
 
 // Generate TypeScript
@@ -79,60 +85,10 @@ if (!config.Quiet)
 // Watch mode
 if (config.Watch)
 {
-    if (!config.Quiet)
-        Console.WriteLine($"Pathfinder: Watching {projectPath} for changes... (Ctrl+C to stop)");
-
-    using var watcher = new FileSystemWatcher(projectPath, "*.cs")
-    {
-        IncludeSubdirectories = true,
-        NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
-        EnableRaisingEvents = true
-    };
-
-    var debounceTimer = new System.Timers.Timer(config.WatchDebounceMs) { AutoReset = false };
-    debounceTimer.Elapsed += (_, _) =>
-    {
-        try
-        {
-            if (!config.Quiet)
-                Console.WriteLine($"Pathfinder: Changes detected, regenerating...");
-
-            RunGeneration(projectPath, config);
-
-            if (!config.Quiet)
-                Console.WriteLine($"Pathfinder: Regeneration complete.");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Pathfinder: Error during regeneration: {ex.Message}");
-        }
-    };
-
-    void OnChanged(object sender, FileSystemEventArgs e)
-    {
-        // Skip obj/bin directories
-        if (e.FullPath.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") ||
-            e.FullPath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-            return;
-
-        debounceTimer.Stop();
-        debounceTimer.Start();
-    }
-
-    watcher.Changed += OnChanged;
-    watcher.Created += OnChanged;
-    watcher.Deleted += OnChanged;
-    watcher.Renamed += (s, e) => OnChanged(s, e);
-
-    // Block until Ctrl+C
     var cts = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-    try { await Task.Delay(Timeout.Infinite, cts.Token); }
-    catch (OperationCanceledException) { }
-
-    if (!config.Quiet)
-        Console.WriteLine("Pathfinder: Stopped watching.");
+    await PathfinderWatchRunner.RunAsync(projectPath, config, () => RunGeneration(projectPath, config), cts.Token);
 }
 
 return 0;
@@ -142,6 +98,7 @@ static void RunGeneration(string projectPath, PathfinderConfig config)
     var csFiles = Directory.GetFiles(projectPath, "*.cs", SearchOption.AllDirectories)
         .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
                     !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+        .OrderBy(f => f, StringComparer.Ordinal)
         .ToArray();
 
     var allRoutes = new List<RouteInfo>();
@@ -149,6 +106,7 @@ static void RunGeneration(string projectPath, PathfinderConfig config)
     var trees = new List<Microsoft.CodeAnalysis.SyntaxTree>();
 
     TypeMapper.ClearEnums();
+    PathfinderDiagnostics.Clear();
 
     foreach (var file in csFiles)
     {
@@ -174,9 +132,15 @@ static void RunGeneration(string projectPath, PathfinderConfig config)
 
     var treesArray = trees.ToArray();
     var allPageProps = PropsDiscoverer.Discover(treesArray);
-    var allModels = ModelDiscoverer.Discover(treesArray, allPageProps);
+    var allModels = ModelDiscoverer.Discover(treesArray, allPageProps, allRoutes);
 
     TypeScriptGenerator.Generate(allRoutes, allEnums, allPageProps, allModels, config);
+
+    if (!config.Quiet)
+    {
+        foreach (var diagnostic in PathfinderDiagnostics.Current.OrderBy(message => message, StringComparer.Ordinal))
+            Console.WriteLine($"Pathfinder: Warning: {diagnostic}");
+    }
 }
 
 static bool MatchesPattern(string value, string pattern)

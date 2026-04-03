@@ -4,7 +4,7 @@ namespace InertiaNet.Pathfinder.Analysis;
 
 static partial class RouteTemplateParser
 {
-    [GeneratedRegex(@"\{(\w+)(?:=([^}:]*?))?(?::([^}]*))?\}")]
+    [GeneratedRegex(@"\{(\w+)(\?)?(?:=([^}:]*?))?(?::([^}]*))?\}")]
     private static partial Regex ParameterRegex();
 
     private static readonly Dictionary<string, string> ConstraintTypeMap = new()
@@ -36,10 +36,9 @@ static partial class RouteTemplateParser
         return ParameterRegex().Replace(template, match =>
         {
             var name = match.Groups[1].Value;
-            var hasDefault = match.Groups[2].Success && match.Groups[2].Value.Length > 0;
-            var isOptional = name.EndsWith('?') || hasDefault;
-            if (name.EndsWith('?'))
-                name = name[..^1];
+            var hasOptionalMarker = match.Groups[2].Success;
+            var hasDefault = match.Groups[3].Success && match.Groups[3].Value.Length > 0;
+            var isOptional = hasOptionalMarker || hasDefault;
             return isOptional ? $"{{{name}?}}" : $"{{{name}}}";
         });
     }
@@ -52,14 +51,12 @@ static partial class RouteTemplateParser
         foreach (Match match in matches)
         {
             var name = match.Groups[1].Value;
-            var defaultValue = match.Groups[2].Success && match.Groups[2].Value.Length > 0
-                ? match.Groups[2].Value
+            var hasOptionalMarker = match.Groups[2].Success;
+            var defaultValue = match.Groups[3].Success && match.Groups[3].Value.Length > 0
+                ? match.Groups[3].Value
                 : null;
-            var constraint = match.Groups[3].Success ? match.Groups[3].Value : null;
-            var isOptional = name.EndsWith('?') || defaultValue != null;
-
-            if (name.EndsWith('?'))
-                name = name[..^1];
+            var constraint = match.Groups[4].Success ? match.Groups[4].Value : null;
+            var isOptional = hasOptionalMarker || defaultValue != null;
 
             var clrType = "string";
 

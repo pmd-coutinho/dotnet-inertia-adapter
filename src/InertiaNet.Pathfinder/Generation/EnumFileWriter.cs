@@ -13,7 +13,9 @@ static class EnumFileWriter
         var enumsDir = Path.Combine(outputDir, "enums");
         Directory.CreateDirectory(enumsDir);
 
-        foreach (var enumInfo in enums)
+        foreach (var enumInfo in enums
+                     .OrderBy(enumInfo => enumInfo.ShortName, StringComparer.Ordinal)
+                     .ThenBy(enumInfo => enumInfo.FullName, StringComparer.Ordinal))
         {
             var sb = new StringBuilder();
             var name = enumInfo.ShortName;

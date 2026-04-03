@@ -1,8 +1,8 @@
 # InertiaNet
 
-A full-featured ASP.NET Core server adapter for [Inertia.js v3](https://inertiajs.com/docs/v3/getting-started).
+A compatibility-first ASP.NET Core server adapter for [Inertia.js v3](https://inertiajs.com/docs/v3/getting-started).
 
-The first .NET adapter with complete Inertia v3 protocol compliance — including deferred props, merge props, once props, infinite scroll, history encryption, flash data, SSR with Vite hot-mode, fragment preservation, prefetch support, and testing utilities.
+Includes support for deferred props, merge props, once props, infinite scroll, history encryption, flash data, SSR with Vite hot mode, fragment preservation, prefetch support, and testing utilities.
 
 **Targets:** .NET 8, .NET 9, .NET 10
 
@@ -36,7 +36,7 @@ app.UseInertia(); // after UseSession / UseAuthentication
 
 ### Session & TempData
 
-Flash data and validation error forwarding require ASP.NET Core session middleware:
+Flash data and validation error forwarding across redirects require ASP.NET Core session middleware:
 
 ```csharp
 builder.Services.AddSession();
@@ -45,7 +45,7 @@ app.UseSession();
 app.UseInertia(); // must come after UseSession
 ```
 
-Without session middleware, these features silently no-op. A warning is logged on the first request when `ITempDataDictionaryFactory` is not registered.
+Without session middleware, flash data and validation forwarding will not persist across redirects.
 
 ### 3. Create the root layout
 
@@ -100,6 +100,23 @@ builder.Services.AddInertiaWithSsr(options =>
 {
     options.Ssr.Url = "http://127.0.0.1:13714"; // Node.js SSR server
     options.Ssr.ThrowOnError = false;           // Fall back to CSR on failure
+    options.Ssr.ExcludePaths = ["/admin/*"];  // Skip SSR for matching routes
+});
+```
+
+Recommended deployment model:
+
+- **Development**: run ASP.NET Core, Vite, and the Node SSR server together; `vite-input` uses the `hot` file and Inertia SSR posts to `__inertia_ssr` on the Vite dev server.
+- **Production**: serve built frontend assets from `wwwroot/build`, run the Node SSR server separately, and point `options.Ssr.Url` at that long-lived process.
+- **Fallback mode**: keep `ThrowOnError = false` unless SSR failures should fail the whole request; this allows production SSR to degrade cleanly to CSR.
+
+Skip SSR for the current response:
+
+```csharp
+app.MapGet("/reports", (IInertiaService inertia) =>
+{
+    inertia.WithoutSsr();
+    return inertia.Render("Reports/Index");
 });
 ```
 
@@ -114,6 +131,33 @@ builder.Services.AddViteHelper(options =>
     options.HotFile          = "hot";           // Written by laravel-vite-plugin in dev
 });
 ```
+
+InertiaNet expects the same Vite conventions in development and production:
+
+- development uses `PublicDirectory/HotFile` to discover the active dev server
+- production uses `PublicDirectory/BuildDirectory/ManifestFilename` to resolve hashed assets
+- SSR hot mode uses the same hot-file location, so keep Vite and ASP.NET aligned on `PublicDirectory`
+
+---
+
+## Request Lifecycle
+
+At a high level, InertiaNet processes requests in four stages:
+
+1. `InertiaMiddleware` prepares the request.
+   It shares global props, restores flash data and validation errors from TempData, resolves request-scoped `Version` and `RootView`, and handles version mismatches before the endpoint runs.
+2. Your endpoint returns `inertia.Render(...)`.
+   This produces an `InertiaResult` that works for both MVC and Minimal APIs.
+3. `PropsResolver` resolves the page props.
+   Shared props, page props, deferred props, merge props, once props, scroll metadata, and event handlers are all applied here.
+4. The response is written.
+   Inertia XHR requests receive JSON. Initial page loads render the root Razor view, optionally with SSR markup injected via `<inertia-head />` and `<inertia />`.
+
+This split is intentional:
+
+- middleware owns request concerns such as versioning, TempData, and shared request state
+- `InertiaResult` owns page construction and response writing
+- tag helpers own HTML embedding of the already-built page and SSR payload
 
 ---
 
@@ -185,9 +229,28 @@ protected override Task ShareCsrfToken(HttpContext context, IInertiaService iner
 ```csharp
 app.MapGet("/", (IInertiaService inertia) => inertia.Render("Home"));
 
+// First-class Minimal API result helper
+app.MapGet("/dashboard", () => InertiaResults.Inertia("Dashboard", new { ready = true }));
+
+// Request-aware props without resolving IInertiaService manually
+app.MapGet("/account", (HttpContext ctx) => InertiaResults.Inertia("Account", new
+{
+    path = ctx.Request.Path.Value,
+    user = ctx.User.Identity?.Name,
+}));
+
 // Static route shorthand
 app.MapInertia("/about", "About");
+
+// Request-aware static route shorthand
+app.MapInertia("/settings", "Settings", ctx => new { tab = ctx.Request.Query["tab"].ToString() });
+
+// SPA fallback for frontend-driven routes
+app.MapInertiaFallback("AppShell");
 ```
+
+Initial HTML rendering for Minimal APIs still requires Razor view services and a root view.
+Register `AddControllersWithViews()` or `AddRazorPages()` in addition to `AddInertia(...)`.
 
 ### MVC Controller
 
@@ -197,6 +260,28 @@ public class PostsController : Controller
     public IActionResult Index()
         => this.Inertia("Posts/Index", new { posts = _db.Posts.ToList() });
 }
+```
+
+`ControllerBase.Inertia(...)` remains the primary MVC surface.
+If you need data for the root Razor view that should not be exposed to the frontend, use `WithViewData(...)` on the returned `InertiaResult`.
+
+## Analyzers
+
+`InertiaNet.Analyzers` adds Roslyn diagnostics for common InertiaNet and Pathfinder mistakes.
+
+Current diagnostics:
+
+- `INERTIA001` invalid Inertia component names
+- `INERTIA002` `JsonSerializerOptions` naming policies that do not affect the Inertia envelope
+- `PATHFINDER001` Minimal API route templates that Pathfinder cannot resolve statically
+- `PATHFINDER002` Minimal API method-group handlers that Pathfinder does not currently support
+
+Add it to your app project like any other analyzer package:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="InertiaNet.Analyzers" Version="0.1.0-alpha.1" PrivateAssets="all" />
+</ItemGroup>
 ```
 
 ---
@@ -381,6 +466,21 @@ app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
 }).WithInertiaValidation();
 ```
 
+`SetInertiaValidationErrors(...)` also accepts `ValidationProblemDetails` and `ModelStateDictionary`:
+
+```csharp
+app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
+{
+    var problem = new ValidationProblemDetails(new Dictionary<string, string[]>
+    {
+        ["email"] = ["Email is required"],
+    });
+
+    ctx.SetInertiaValidationErrors(problem, bag: "createUser");
+    return Results.Redirect("/users/create");
+}).WithInertiaValidation();
+```
+
 ### Error Bags
 
 Scope errors for pages with multiple forms:
@@ -388,6 +488,32 @@ Scope errors for pages with multiple forms:
 ```javascript
 router.post('/users', data, { errorBag: 'createUser' });
 ```
+
+## Error Handling
+
+Use `HandleExceptionsUsing` to render custom error pages for Inertia requests:
+
+```csharp
+builder.Services.AddInertia(options =>
+{
+    options.HandleExceptionsUsing = (exception, context) =>
+        InertiaResults.Inertia("Errors/ServerError", new
+        {
+            message = context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
+                ? exception.Message
+                : "Something went wrong.",
+        });
+});
+```
+
+The handler may also return a normal ASP.NET Core result when that is more appropriate:
+
+```csharp
+options.HandleExceptionsUsing = (exception, context) =>
+    Results.StatusCode(StatusCodes.Status500InternalServerError);
+```
+
+This hook runs for both MVC and Minimal API Inertia responses.
 
 ---
 
@@ -448,6 +574,8 @@ Multiple handlers can be registered — they run in registration order.
 
 Add `@addTagHelper *, InertiaNet` to `_ViewImports.cshtml`, then use in your layout:
 
+These tag helpers assume your app has Razor view support enabled and that your configured root view renders `<inertia />`.
+
 | Tag | Description |
 |---|---|
 | `<inertia />` | Renders the root `<div id="app">` and the page data `<script>` |
@@ -474,7 +602,7 @@ Add `@addTagHelper *, InertiaNet` to `_ViewImports.cshtml`, then use in your lay
 
 The `vite-input` tag helper:
 
-- **HMR mode** (when `wwwroot/hot` exists): injects the Vite dev-server client and the requested module.
+- **HMR mode** (when `PublicDirectory/HotFile` exists): injects the Vite dev-server client and the requested module.
 - **Production**: reads `wwwroot/build/manifest.json`, resolves the hashed filename, and emits `<script type="module">` for JS entries plus any associated `<link rel="stylesheet">` CSS chunks.
 
 ### Vite config
@@ -523,11 +651,14 @@ builder.Services.AddInertia(options =>
 ```csharp
 // In an xUnit / NUnit integration test
 var response = await _client.GetAsync("/posts");
-var page = await response.AssertInertia("Posts/Index");
+var page = await response.AssertInertiaAsync();
 
-page.AssertHasProp("posts");
-page.AssertPropCount("posts", 3);
-page.AssertProp<string>("posts[0].title", t => t.StartsWith("Hello"));
+page.HasComponent("Posts/Index")
+    .HasProp("posts")
+    .HasUrl("/posts");
+
+var redirect = await _client.GetAsync("/stale-assets", HttpCompletionOption.ResponseHeadersRead);
+redirect.AssertVersionRedirect().To("/stale-assets");
 ```
 
 ---

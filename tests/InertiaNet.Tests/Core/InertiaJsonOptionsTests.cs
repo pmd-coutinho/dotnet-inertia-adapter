@@ -4,6 +4,7 @@ using InertiaNet.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -27,16 +28,16 @@ public class InertiaJsonOptionsTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldUseCustomJsonOptions_WhenConfigured()
+    public async Task ExecuteAsync_ShouldPreserveProtocolEnvelope_WhenCustomJsonOptionsAreConfigured()
     {
         var (result, context) = CreateInertiaResult(
-            pageProps: new() { ["name"] = "Alice" },
+            pageProps: new() { ["userName"] = "Alice" },
             configureOptions: opts =>
             {
                 opts.JsonSerializerOptions = new JsonSerializerOptions
                 {
-                    PropertyNamingPolicy = null, // PascalCase (no conversion)
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    PropertyNamingPolicy = null,
+                    DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
                 };
             });
 
@@ -44,9 +45,30 @@ public class InertiaJsonOptionsTests
 
         var body = await context.ReadResponseBodyAsync();
         using var doc = JsonDocument.Parse(body);
-        // Custom options: InertiaPage.Component → "Component" (PascalCase)
-        doc.RootElement.GetProperty("Component").GetString().Should().Be("Test/Page");
-        doc.RootElement.GetProperty("Props").GetProperty("name").GetString().Should().Be("Alice");
+
+        doc.RootElement.TryGetProperty("Component", out _).Should().BeFalse();
+        doc.RootElement.GetProperty("component").GetString().Should().Be("Test/Page");
+        doc.RootElement.GetProperty("props").GetProperty("userName").GetString().Should().Be("Alice");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldUseCustomConverters_ForPropValues()
+    {
+        var (result, context) = CreateInertiaResult(
+            pageProps: new() { ["price"] = new Money(12.34m) },
+            configureOptions: opts =>
+            {
+                opts.JsonSerializerOptions = new JsonSerializerOptions();
+                opts.JsonSerializerOptions.Converters.Add(new MoneyJsonConverter());
+            });
+
+        await result.ExecuteAsync(context);
+
+        var body = await context.ReadResponseBodyAsync();
+        using var doc = JsonDocument.Parse(body);
+
+        doc.RootElement.GetProperty("component").GetString().Should().Be("Test/Page");
+        doc.RootElement.GetProperty("props").GetProperty("price").GetString().Should().Be("USD 12.34");
     }
 
     private static (InertiaResult result, DefaultHttpContext context) CreateInertiaResult(
@@ -76,5 +98,16 @@ public class InertiaJsonOptionsTests
             optionsWrapper);
 
         return (result, context);
+    }
+
+    private sealed record Money(decimal Amount);
+
+    private sealed class MoneyJsonConverter : JsonConverter<Money>
+    {
+        public override Money Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => throw new NotSupportedException();
+
+        public override void Write(Utf8JsonWriter writer, Money value, JsonSerializerOptions options)
+            => writer.WriteStringValue($"USD {value.Amount.ToString("0.00", CultureInfo.InvariantCulture)}");
     }
 }

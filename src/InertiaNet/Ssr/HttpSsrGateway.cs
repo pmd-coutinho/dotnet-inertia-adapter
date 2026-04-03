@@ -15,6 +15,7 @@ internal sealed class HttpSsrGateway : ISsrGateway
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<InertiaOptions> _options;
+    private readonly IOptions<ViteOptions> _viteOptions;
     private readonly ILogger<HttpSsrGateway> _logger;
 
     private const string ClientName = "InertiaNet.SSR";
@@ -22,10 +23,12 @@ internal sealed class HttpSsrGateway : ISsrGateway
     public HttpSsrGateway(
         IHttpClientFactory httpClientFactory,
         IOptions<InertiaOptions> options,
+        IOptions<ViteOptions> viteOptions,
         ILogger<HttpSsrGateway> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options;
+        _viteOptions = viteOptions;
         _logger = logger;
     }
 
@@ -39,12 +42,12 @@ internal sealed class HttpSsrGateway : ISsrGateway
         try
         {
             var client = _httpClientFactory.CreateClient(ClientName);
-            var endpoint = GetRenderEndpoint(ssr);
+            var endpoint = GetRenderEndpoint(ssr, _viteOptions.Value);
 
             using var response = await client.PostAsJsonAsync(
                 endpoint,
                 page,
-                InertiaJsonOptions.Default,
+                InertiaJsonOptions.GetOptions(_options.Value),
                 ct);
 
             response.EnsureSuccessStatusCode();
@@ -86,11 +89,9 @@ internal sealed class HttpSsrGateway : ISsrGateway
         }
     }
 
-    private static string GetRenderEndpoint(SsrOptions ssr)
+    private static string GetRenderEndpoint(SsrOptions ssr, ViteOptions viteOptions)
     {
-        // Vite hot mode: check for a "hot" file at wwwroot/hot
-        // (same pattern as Laravel's Vite::isRunningHot())
-        var hotFile = Path.Combine("wwwroot", "hot");
+        var hotFile = Path.Combine(viteOptions.PublicDirectory, viteOptions.HotFile);
         if (File.Exists(hotFile))
         {
             var viteUrl = File.ReadAllText(hotFile).Trim();

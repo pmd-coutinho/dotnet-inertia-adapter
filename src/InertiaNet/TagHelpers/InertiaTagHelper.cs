@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Options;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace InertiaNet.TagHelpers;
 
@@ -56,7 +55,7 @@ public sealed class InertiaTagHelper : TagHelper
         // ── Page data script ──────────────────────────────────────────────────
         if (page is not null)
         {
-            var json = JsonSerializer.Serialize(page, InertiaTagJsonOptions.GetOptions(_options));
+            var json = JsonSerializer.Serialize(page, InertiaJsonOptions.GetTagHelperOptions(_options));
             output.Content.AppendHtml(
                 $"\n<script type=\"application/json\" data-page=\"{HtmlEncoder.Default.Encode(Id)}\">{json}</script>");
         }
@@ -93,35 +92,5 @@ public sealed class InertiaHeadTagHelper : TagHelper
         if (ssr?.Head is null || ssr.Head.Length == 0) return;
 
         output.Content.AppendHtml(ssr.Head);
-    }
-}
-
-/// <summary>Serializer options used by the Inertia tag helpers.</summary>
-internal static class InertiaTagJsonOptions
-{
-    public static readonly JsonSerializerOptions Default = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false,
-        // Prevent HTML encoding of characters like <, >, & inside the JSON script block
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    /// <summary>
-    /// Returns user-configured options with UnsafeRelaxedJsonEscaping forced
-    /// (required for script tags), or the built-in defaults.
-    /// </summary>
-    public static JsonSerializerOptions GetOptions(InertiaOptions? options)
-    {
-        if (options?.JsonSerializerOptions is null)
-            return Default;
-
-        // Clone user options and force relaxed encoding for script tag safety
-        var cloned = new JsonSerializerOptions(options.JsonSerializerOptions)
-        {
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-        return cloned;
     }
 }

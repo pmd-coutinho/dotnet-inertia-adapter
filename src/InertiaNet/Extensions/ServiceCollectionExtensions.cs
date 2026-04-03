@@ -59,11 +59,6 @@ public static class ServiceCollectionExtensions
         // Tag helpers require IHttpContextAccessor (already registered above)
         // They are resolved by Razor automatically when AddRazorPages/AddControllersWithViews is called
 
-        // TempData support (for validation error forwarding)
-        services.TryAddSingleton<
-            Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataDictionaryFactory,
-            Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionaryFactory>();
-
         // Global MVC filters
         services.Configure<MvcOptions>(mvcOptions =>
         {

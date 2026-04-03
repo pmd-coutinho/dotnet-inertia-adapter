@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.framework }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - framework: net8.0
+            dotnet-version: 8.0.x
+          - framework: net9.0
+            dotnet-version: 9.0.x
+          - framework: net10.0
+            dotnet-version: 10.0.x
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+
+      - name: Restore tests
+        run: dotnet restore tests/InertiaNet.Tests/InertiaNet.Tests.csproj -p:TargetFramework=${{ matrix.framework }}
+
+      - name: Test
+        run: dotnet test tests/InertiaNet.Tests/InertiaNet.Tests.csproj --configuration Release --framework ${{ matrix.framework }} --no-restore
+
+  test-pathfinder:
+    name: Test Pathfinder
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore Pathfinder tests
+        run: dotnet restore tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj
+
+      - name: Test Pathfinder
+        run: dotnet test tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj --configuration Release --no-restore
+
+  test-analyzers:
+    name: Test Analyzers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore analyzer tests
+        run: dotnet restore tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj
+
+      - name: Test Analyzers
+        run: dotnet test tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj --configuration Release --no-restore
+
+  pack:
+    name: Pack
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - test-pathfinder
+      - test-analyzers
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore package
+        run: dotnet restore InertiaNet.slnx
+
+      - name: Pack InertiaNet
+        run: dotnet pack src/InertiaNet/InertiaNet.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+
+      - name: Pack Pathfinder Tool
+        run: dotnet pack src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+
+      - name: Pack Pathfinder Build
+        run: dotnet pack src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+
+      - name: Pack Analyzers
+        run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: inertia-packages
+          path: artifacts/*

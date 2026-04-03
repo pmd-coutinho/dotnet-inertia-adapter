@@ -60,28 +60,27 @@ public class InertiaOptions
 
     /// <summary>
     /// Custom JSON serializer options for Inertia page responses.
-    /// When null (default), uses camelCase property naming with null values ignored.
-    /// Custom converters (e.g. for <c>DateOnly</c>, domain types) can be added here.
+    /// InertiaNet preserves the protocol envelope field names regardless of these settings,
+    /// but custom converters and other value-level serialization behaviors still apply.
     /// </summary>
     public JsonSerializerOptions? JsonSerializerOptions { get; set; }
 
     /// <summary>
-    /// Custom exception handler delegate for Inertia responses (v3).
-    /// Called when an unhandled exception occurs during Inertia request processing.
-    /// Return an <see cref="InertiaResult"/> to render a custom error page,
-    /// or return null to rethrow the original exception.
-    /// </summary>
+     /// Custom exception handler delegate for Inertia responses (v3).
+     /// Called when an unhandled exception occurs during Inertia request processing.
+     /// Return an <see cref="IResult"/> or <see cref="Microsoft.AspNetCore.Mvc.IActionResult"/>
+     /// to render a custom error response, or return null to rethrow the original exception.
+     /// </summary>
     /// <remarks>
     /// Example:
-    /// <code>
-    /// options.HandleExceptionsUsing = (exception, context) =>
-    /// {
-    ///     var inertia = context.RequestServices.GetRequiredService&lt;IInertiaService&gt;();
-    ///     return inertia.Render("Error", new { message = exception.Message });
-    /// };
-    /// </code>
-    /// </remarks>
-    public Func<Exception, HttpContext, InertiaResult?>? HandleExceptionsUsing { get; set; }
+     /// <code>
+     /// options.HandleExceptionsUsing = (exception, context) =>
+     /// {
+     ///     return InertiaNet.Extensions.InertiaResults.Inertia("Errors/ServerError", new { message = exception.Message });
+     /// };
+     /// </code>
+     /// </remarks>
+    public Func<Exception, HttpContext, object?>? HandleExceptionsUsing { get; set; }
 }
 
 /// <summary>

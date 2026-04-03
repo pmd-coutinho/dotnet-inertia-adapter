@@ -1,8 +1,10 @@
 using FluentAssertions;
 using InertiaNet.Core;
+using InertiaNet.Extensions;
 using InertiaNet.Support;
 using InertiaNet.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -85,5 +87,62 @@ public class InertiaResultTests
         await result.ExecuteAsync(context);
 
         context.Response.Headers["Vary"].ToString().Should().Contain("X-Inertia");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldUseCustomExceptionHandler_WhenItReturnsInertiaResult()
+    {
+        var (result, context) = CreateInertiaResult(
+            component: "Users/Index",
+            pageProps: new()
+            {
+                ["boom"] = new Func<IServiceProvider, CancellationToken, Task<object?>>((_, _) =>
+                    throw new InvalidOperationException("Boom"))
+            },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (exception, httpContext) =>
+                    InertiaResults.Inertia("Errors/ServerError", new { message = exception.Message });
+            });
+
+        await result.ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+        var body = await context.ReadResponseBodyAsync();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("component").GetString().Should().Be("Errors/ServerError");
+        doc.RootElement.GetProperty("props").GetProperty("message").GetString().Should().Be("Boom");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldUseCustomExceptionHandler_WhenItReturnsStandardResult()
+    {
+        var (result, context) = CreateInertiaResult(
+            component: "Users/Index",
+            pageProps: new()
+            {
+                ["boom"] = new Func<IServiceProvider, CancellationToken, Task<object?>>((_, _) =>
+                    throw new InvalidOperationException("Boom"))
+            },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (_, _) => new StaticResult(StatusCodes.Status503ServiceUnavailable, "Boom");
+            });
+
+        await result.ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+        context.Response.ContentType.Should().Be("text/plain");
+        (await context.ReadResponseBodyAsync()).Should().Be("Boom");
+    }
+
+    private sealed class StaticResult(int statusCode, string body) : IResult
+    {
+        public async Task ExecuteAsync(HttpContext httpContext)
+        {
+            httpContext.Response.StatusCode = statusCode;
+            httpContext.Response.ContentType = "text/plain";
+            await httpContext.Response.WriteAsync(body);
+        }
     }
 }

@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace InertiaNet.Core;
 
@@ -70,6 +69,7 @@ public sealed class InertiaResult : IActionResult, IResult
         var ct = httpContext.RequestAborted;
         var services = httpContext.RequestServices;
         var options = _options.Value;
+        var requestSettings = InertiaRequestSettings.Resolve(httpContext, options);
 
         try
         {
@@ -96,7 +96,13 @@ public sealed class InertiaResult : IActionResult, IResult
             // 2. Build the page object
             var encryptHistory = _inertiaService.GetEncryptHistory() ?? options.EncryptHistory;
 
-            var page = BuildPageObject(httpContext, resolvedProps, metadata, encryptHistory, options);
+            var page = BuildPageObject(
+                httpContext,
+                resolvedProps,
+                metadata,
+                encryptHistory,
+                options,
+                requestSettings);
 
             // 2b. Event hook: OnBeforeRender
             foreach (var handler in handlers)
@@ -128,22 +134,46 @@ public sealed class InertiaResult : IActionResult, IResult
             }
             else
             {
-                await WriteHtmlResponseAsync(httpContext, actionContext, page, services, options, ct);
+                await WriteHtmlResponseAsync(
+                    httpContext,
+                    actionContext,
+                    page,
+                    services,
+                    requestSettings,
+                    ct);
             }
         }
         catch (Exception ex) when (options.HandleExceptionsUsing is not null)
         {
-            // Delegate to the configured exception handler; if it returns null, rethrow.
-            // The handler receives a fresh InertiaResult which it executes independently
-            // (no recursion risk since the error page itself will not throw the same exception).
-            var errorResult = options.HandleExceptionsUsing(ex, httpContext);
-            if (errorResult is null)
+            if (httpContext.Items.ContainsKey(InertiaContextKeys.ExceptionHandlerActiveKey))
                 throw;
 
-            if (actionContext is not null)
-                await errorResult.ExecuteResultAsync(actionContext);
-            else
-                await errorResult.ExecuteAsync(httpContext);
+            // Delegate to the configured exception handler; if it returns null, rethrow.
+            httpContext.Items[InertiaContextKeys.ExceptionHandlerActiveKey] = true;
+
+            try
+            {
+                var errorResult = options.HandleExceptionsUsing(ex, httpContext);
+                if (errorResult is null)
+                    throw;
+
+                switch (errorResult)
+                {
+                    case IActionResult mvcResult:
+                        await mvcResult.ExecuteResultAsync(actionContext ?? CreateActionContext(httpContext));
+                        break;
+                    case IResult httpResult:
+                        await httpResult.ExecuteAsync(httpContext);
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            "HandleExceptionsUsing must return an IResult, an IActionResult, or null.");
+                }
+            }
+            finally
+            {
+                httpContext.Items.Remove(InertiaContextKeys.ExceptionHandlerActiveKey);
+            }
         }
     }
 
@@ -152,7 +182,8 @@ public sealed class InertiaResult : IActionResult, IResult
         Dictionary<string, object?> resolvedProps,
         ResolvedMetadata metadata,
         bool encryptHistory,
-        InertiaOptions options)
+        InertiaOptions options,
+        InertiaRequestSettings requestSettings)
     {
         var flashData = _inertiaService.GetFlashData();
 
@@ -161,7 +192,7 @@ public sealed class InertiaResult : IActionResult, IResult
             Component = _component,
             Props = resolvedProps,
             Url = GetUrl(httpContext),
-            Version = options.Version?.Invoke(),
+            Version = requestSettings.Version,
             SharedProps = options.ExposeSharedPropKeys && metadata.SharedPropKeys?.Count > 0
                 ? metadata.SharedPropKeys
                 : null,
@@ -209,18 +240,22 @@ public sealed class InertiaResult : IActionResult, IResult
         ActionContext? actionContext,
         InertiaPage page,
         IServiceProvider services,
-        InertiaOptions options,
+        InertiaRequestSettings requestSettings,
         CancellationToken ct)
     {
         // Try SSR first
         var ssrGateway = services.GetService<ISsrGateway>();
         SsrResponse? ssrResponse = null;
+        var options = _options.Value;
 
         if (ssrGateway is not null)
         {
-            var excludedPaths = _inertiaService.GetSsrExcludedPaths();
+            var excludedPaths = options.Ssr.ExcludePaths
+                .Concat(_inertiaService.GetSsrExcludedPaths())
+                .Where(path => !string.IsNullOrWhiteSpace(path));
+
             var path = httpContext.Request.Path.Value ?? string.Empty;
-            var isExcluded = excludedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            var isExcluded = SsrPathMatcher.IsExcluded(path, excludedPaths);
 
             if (!isExcluded)
                 ssrResponse = await ssrGateway.DispatchAsync(page, ct);
@@ -233,13 +268,13 @@ public sealed class InertiaResult : IActionResult, IResult
         if (actionContext is not null)
         {
             // MVC: render via ViewResult
-            await RenderViewAsync(actionContext, options.RootView, page);
+            await RenderViewAsync(actionContext, requestSettings.RootView, page);
         }
         else
         {
             // Minimal API: write HTML directly via the view engine
             // For minimal APIs, we need to resolve the view engine manually
-            await RenderViewMinimalAsync(httpContext, services, options.RootView, page);
+            await RenderViewMinimalAsync(httpContext, services, requestSettings.RootView, page);
         }
     }
 
@@ -299,20 +334,36 @@ public sealed class InertiaResult : IActionResult, IResult
     private static async Task RenderViewMinimalAsync(
         HttpContext httpContext, IServiceProvider services, string viewName, InertiaPage page)
     {
-        // For Minimal API, use IActionResultExecutor via a temporary ActionContext
-        var viewResult = new ViewResult { ViewName = viewName };
-        viewResult.ViewData = new ViewDataDictionary(
-            new EmptyModelMetadataProvider(), new ModelStateDictionary())
+        try
         {
-            Model = page,
-        };
+            // For Minimal API, use IActionResultExecutor via a temporary ActionContext
+            var viewResult = new ViewResult { ViewName = viewName };
+            viewResult.ViewData = new ViewDataDictionary(
+                new EmptyModelMetadataProvider(), new ModelStateDictionary())
+            {
+                Model = page,
+            };
 
-        // Create a minimal ActionContext
+            // Create a minimal ActionContext
+            var actionContext = CreateActionContext(httpContext);
+
+            await viewResult.ExecuteResultAsync(actionContext);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                "Initial Inertia HTML rendering requires Razor view services. " +
+                "Register MVC/Razor with builder.Services.AddControllersWithViews() or AddRazorPages(), " +
+                "and ensure the configured root view exists.",
+                ex);
+        }
+    }
+
+    private static ActionContext CreateActionContext(HttpContext httpContext)
+    {
         var routeData = httpContext.Features.Get<IRoutingFeature>()?.RouteData ?? new RouteData();
         var actionDescriptor = new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor();
-        var actionContext = new ActionContext(httpContext, routeData, actionDescriptor);
-
-        await viewResult.ExecuteResultAsync(actionContext);
+        return new ActionContext(httpContext, routeData, actionDescriptor);
     }
 }
 
@@ -321,21 +372,6 @@ internal static class InertiaContextKeys
 {
     public const string PageKey = "InertiaNet.Page";
     public const string SsrResponseKey = "InertiaNet.SsrResponse";
-}
-
-/// <summary>Shared JSON serializer options for Inertia page object serialization.</summary>
-internal static class InertiaJsonOptions
-{
-    public static readonly JsonSerializerOptions Default = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false,
-    };
-
-    /// <summary>
-    /// Returns the user-configured options if set, otherwise the built-in defaults.
-    /// </summary>
-    public static JsonSerializerOptions GetOptions(InertiaOptions? options)
-        => options?.JsonSerializerOptions ?? Default;
+    public const string RequestSettingsKey = "InertiaNet.RequestSettings";
+    public const string ExceptionHandlerActiveKey = "InertiaNet.ExceptionHandlerActive";
 }

@@ -41,22 +41,28 @@ static class NameUtils
 
     public static string ControllerToPath(string controllerFullName)
     {
-        // "MyApp.Controllers.PostsController" → "Posts"
-        // Use just the short class name, stripped of "Controller" suffix
-        var lastDot = controllerFullName.LastIndexOf('.');
-        var shortName = lastDot >= 0 ? controllerFullName[(lastDot + 1)..] : controllerFullName;
+        var segments = controllerFullName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+            return string.Empty;
 
-        if (shortName.EndsWith("Controller"))
-            shortName = shortName[..^"Controller".Length];
-        else if (shortName.EndsWith("Endpoints"))
-            shortName = shortName[..^"Endpoints".Length];
-        else if (shortName.EndsWith("Endpoint"))
-            shortName = shortName[..^"Endpoint".Length];
+        var shortName = StripControllerSuffix(segments[^1]);
+        var namespaceSegments = segments
+            .Skip(1)
+            .Take(Math.Max(segments.Length - 2, 0))
+            .Where(segment => !IsPathNoise(segment))
+            .Select(segment => segment.ToLowerInvariant())
+            .ToList();
 
-        return shortName.ToLowerInvariant();
+        namespaceSegments.Add(shortName.ToLowerInvariant());
+        return string.Join('/', namespaceSegments);
     }
 
     public static string ControllerDisplayName(string shortName)
+    {
+        return StripControllerSuffix(shortName);
+    }
+
+    private static string StripControllerSuffix(string shortName)
     {
         if (shortName.EndsWith("Controller"))
             return shortName[..^"Controller".Length];
@@ -66,4 +72,7 @@ static class NameUtils
             return shortName[..^"Endpoint".Length];
         return shortName;
     }
+
+    private static bool IsPathNoise(string segment)
+        => segment is "Controllers" or "Controller" or "Endpoints" or "Endpoint";
 }

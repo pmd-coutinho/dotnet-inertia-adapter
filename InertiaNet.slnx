@@ -2,8 +2,12 @@
   <Folder Name="/src/">
     <Project Path="src/InertiaNet/InertiaNet.csproj" />
     <Project Path="src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj" />
+    <Project Path="src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj" />
+    <Project Path="src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/InertiaNet.Tests/InertiaNet.Tests.csproj" />
+    <Project Path="tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj" />
+    <Project Path="tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj" />
   </Folder>
 </Solution>

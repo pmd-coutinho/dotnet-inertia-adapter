@@ -1,4 +1,5 @@
 using InertiaNet.Core;
+using InertiaNet.Support;
 using InertiaNet.Testing;
 using System.Net;
 using System.Text.Json;
@@ -20,6 +21,12 @@ public static class InertiaTestExtensions
         if (response.StatusCode != HttpStatusCode.OK)
             throw new AssertionException($"Expected status 200, got {(int)response.StatusCode}.");
 
+        if (!response.Headers.TryGetValues(HeaderNames.Inertia, out var inertiaHeader)
+            || !string.Equals(inertiaHeader.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AssertionException($"Expected {HeaderNames.Inertia}: true response header.");
+        }
+
         if (!response.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
             throw new AssertionException($"Expected JSON content type, got '{response.Content.Headers.ContentType?.MediaType}'.");
 
@@ -40,8 +47,8 @@ public static class InertiaTestExtensions
         if (response.StatusCode != HttpStatusCode.Conflict)
             throw new AssertionException($"Expected status 409, got {(int)response.StatusCode}.");
 
-        if (!response.Headers.TryGetValues("X-Inertia-Location", out var locationHeader))
-            throw new AssertionException("Expected X-Inertia-Location header.");
+        if (!response.Headers.TryGetValues(HeaderNames.Location, out var locationHeader))
+            throw new AssertionException($"Expected {HeaderNames.Location} header.");
 
         var location = locationHeader.FirstOrDefault() ?? string.Empty;
         return new AssertableInertiaRedirect(location);
@@ -55,23 +62,23 @@ public static class InertiaTestExtensions
         if (response.StatusCode != HttpStatusCode.Conflict)
             throw new AssertionException($"Expected status 409, got {(int)response.StatusCode}.");
 
-        if (!response.Headers.TryGetValues("X-Inertia-Redirect", out var redirectHeader))
-            throw new AssertionException("Expected X-Inertia-Redirect header.");
+        if (!response.Headers.TryGetValues(HeaderNames.Redirect, out var redirectHeader))
+            throw new AssertionException($"Expected {HeaderNames.Redirect} header.");
 
         var redirect = redirectHeader.FirstOrDefault() ?? string.Empty;
         return new AssertableInertiaFragmentRedirect(redirect);
     }
 
     /// <summary>
-    /// Asserts the response is a version-mismatch redirect (303 See Other).
+    /// Asserts the response is a version-mismatch redirect (409 Conflict with X-Inertia-Location).
     /// </summary>
     public static AssertableInertiaVersionRedirect AssertVersionRedirect(this HttpResponseMessage response)
     {
-        if (response.StatusCode != (HttpStatusCode)303)
-            throw new AssertionException($"Expected status 303, got {(int)response.StatusCode}.");
+        if (response.StatusCode != HttpStatusCode.Conflict)
+            throw new AssertionException($"Expected status 409, got {(int)response.StatusCode}.");
 
-        if (!response.Headers.TryGetValues("Location", out var locationHeader))
-            throw new AssertionException("Expected Location header.");
+        if (!response.Headers.TryGetValues(HeaderNames.Location, out var locationHeader))
+            throw new AssertionException($"Expected {HeaderNames.Location} header.");
 
         var location = locationHeader.FirstOrDefault() ?? string.Empty;
         return new AssertableInertiaVersionRedirect(location);

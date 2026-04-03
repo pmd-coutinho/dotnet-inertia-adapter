@@ -126,7 +126,21 @@ internal sealed class InertiaService : IInertiaService
 
     // ── SSR exclusions ────────────────────────────────────────────────────────
 
-    public IInertiaService WithoutSsr(params string[] paths) { _ssrExcludedPaths.AddRange(paths); return this; }
+    public IInertiaService WithoutSsr(params string[] paths)
+    {
+        if (paths.Length == 0)
+        {
+            var currentPath = _httpContextAccessor.HttpContext?.Request.Path.Value;
+            if (!string.IsNullOrWhiteSpace(currentPath))
+                _ssrExcludedPaths.Add(currentPath);
+
+            return this;
+        }
+
+        _ssrExcludedPaths.AddRange(paths.Where(path => !string.IsNullOrWhiteSpace(path)));
+        return this;
+    }
+
     public IReadOnlyList<string> GetSsrExcludedPaths() => _ssrExcludedPaths;
 
     // ── Helpers ───────────────────────────────────────────────────────────────

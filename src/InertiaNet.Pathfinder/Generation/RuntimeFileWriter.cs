@@ -6,7 +6,7 @@ static class RuntimeFileWriter
         export type RouteDefinition<T = string> = { url: string; method: T }
         export type RouteDefinitionInfo<T extends string[] = string[]> = { methods: T; url: string }
         export type RouteQueryOptions = { query?: QueryParams; mergeQuery?: QueryParams }
-        export type FormDefinition<TMethod extends string = string> = { action: string; method: TMethod }
+        export type FormDefinition<TMethod extends string = string> = { action: string; method: TMethod; data?: Record<string, string> }
         type QueryParamValue = string | number | boolean | null | undefined
         type QueryParams = Record<string, QueryParamValue | QueryParamValue[] | Record<string, QueryParamValue | QueryParamValue[]>>
 
@@ -93,12 +93,29 @@ static class RuntimeFileWriter
             return merged
         }
 
-        export function validateParameters(args: Record<string, unknown> | undefined, optional: string[]): void {
-            const missing = optional.filter(key => !args?.[key])
-            const expectedMissing = optional.slice(missing.length * -1)
-            for (let i = 0; i < missing.length; i++) {
-                if (missing[i] !== expectedMissing[i]) {
-                    throw new Error('Unexpected optional parameters missing. Unable to generate a URL.')
+        const isMissing = (value: unknown): boolean => value === undefined || value === null || value === ''
+
+        export function validateParameters(
+            routeName: string,
+            url: string,
+            required: string[],
+            args: Record<string, unknown> | undefined,
+            optional: string[] = [],
+        ): void {
+            const missingRequired = required.filter(key => isMissing(args?.[key]))
+            if (missingRequired.length > 0) {
+                const suffix = missingRequired.length === 1 ? '' : 's'
+                const formatted = missingRequired.map(key => `'${key}'`).join(', ')
+                throw new Error(`Missing required parameter${suffix} ${formatted} for route '${routeName}' (${url}).`)
+            }
+
+            if (optional.length === 0) return
+
+            const missingOptional = optional.filter(key => isMissing(args?.[key]))
+            const expectedMissing = optional.slice(missingOptional.length * -1)
+            for (let i = 0; i < missingOptional.length; i++) {
+                if (missingOptional[i] !== expectedMissing[i]) {
+                    throw new Error(`Optional parameters for route '${routeName}' must be omitted from the end of the argument list.`)
                 }
             }
         }

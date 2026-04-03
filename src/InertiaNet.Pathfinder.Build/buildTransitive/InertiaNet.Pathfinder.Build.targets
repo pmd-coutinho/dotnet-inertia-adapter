@@ -1,0 +1,17 @@
+<Project>
+  <Target Name="PathfinderGenerate"
+          Condition="'$(PathfinderEnabled)' == 'true'"
+          BeforeTargets="$(PathfinderBeforeTargets)"
+          Inputs="@(Compile);$(MSBuildProjectFullPath);$(MSBuildThisFileFullPath)"
+          Outputs="$(PathfinderOutputPath)/index.ts">
+    <PropertyGroup>
+      <_PathfinderCommand>$(PathfinderToolCommand) -p &quot;$(PathfinderProjectPath)&quot; -o &quot;$(PathfinderOutputPath)&quot; --actions $(PathfinderGenerateActions) --routes $(PathfinderGenerateRoutes) --forms $(PathfinderGenerateForms)</_PathfinderCommand>
+      <_PathfinderCommand Condition="'$(PathfinderSkipPatterns)' != ''">$(_PathfinderCommand) --skip &quot;$(PathfinderSkipPatterns)&quot;</_PathfinderCommand>
+      <_PathfinderCommand Condition="'$(PathfinderClean)' == 'false'">$(_PathfinderCommand) --no-clean</_PathfinderCommand>
+      <_PathfinderCommand Condition="'$(PathfinderQuiet)' == 'true'">$(_PathfinderCommand) --quiet</_PathfinderCommand>
+    </PropertyGroup>
+
+    <Message Importance="High" Condition="'$(PathfinderQuiet)' != 'true'" Text="Running Pathfinder: $(_PathfinderCommand)" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(_PathfinderCommand)" />
+  </Target>
+</Project>

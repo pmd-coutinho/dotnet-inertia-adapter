@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <PathfinderEnabled Condition="'$(PathfinderEnabled)' == ''">false</PathfinderEnabled>
+    <PathfinderProjectPath Condition="'$(PathfinderProjectPath)' == ''">$(MSBuildProjectDirectory)</PathfinderProjectPath>
+    <PathfinderOutputPath Condition="'$(PathfinderOutputPath)' == ''">$(MSBuildProjectDirectory)/pathfinder</PathfinderOutputPath>
+    <PathfinderGenerateActions Condition="'$(PathfinderGenerateActions)' == ''">true</PathfinderGenerateActions>
+    <PathfinderGenerateRoutes Condition="'$(PathfinderGenerateRoutes)' == ''">true</PathfinderGenerateRoutes>
+    <PathfinderGenerateForms Condition="'$(PathfinderGenerateForms)' == ''">true</PathfinderGenerateForms>
+    <PathfinderSkipPatterns Condition="'$(PathfinderSkipPatterns)' == ''"></PathfinderSkipPatterns>
+    <PathfinderClean Condition="'$(PathfinderClean)' == ''">true</PathfinderClean>
+    <PathfinderQuiet Condition="'$(PathfinderQuiet)' == ''">true</PathfinderQuiet>
+    <PathfinderToolCommand Condition="'$(PathfinderToolCommand)' == ''">dotnet tool run pathfinder</PathfinderToolCommand>
+    <PathfinderBeforeTargets Condition="'$(PathfinderBeforeTargets)' == ''">CoreCompile</PathfinderBeforeTargets>
+  </PropertyGroup>
+</Project>

@@ -19,7 +19,10 @@ static class ModelDiscoverer
     /// Discovers model types referenced by page props.
     /// Only generates types for models that are actually used in Inertia props.
     /// </summary>
-    public static List<ModelInfo> Discover(SyntaxTree[] trees, List<PagePropsInfo> pageProps)
+    public static List<ModelInfo> Discover(
+        SyntaxTree[] trees,
+        List<PagePropsInfo> pageProps,
+        IEnumerable<RouteInfo>? routes = null)
     {
         var models = new List<ModelInfo>();
         var classDeclarations = new Dictionary<string, ClassDeclarationSyntax>();
@@ -44,9 +47,21 @@ static class ModelDiscoverer
                 CollectTypeReferences(prop.TypeScriptType, referencedTypes);
         }
 
-        // Resolve each referenced type
-        foreach (var typeName in referencedTypes)
+        if (routes != null)
         {
+            foreach (var route in routes)
+            {
+                if (!string.IsNullOrWhiteSpace(route.BodyTypeName))
+                    referencedTypes.Add(route.BodyTypeName!);
+            }
+        }
+
+        var pending = new Queue<string>(referencedTypes.OrderBy(type => type, StringComparer.Ordinal));
+
+        while (pending.Count > 0)
+        {
+            var typeName = pending.Dequeue();
+
             if (discovered.Contains(typeName)) continue;
             if (PrimitiveTypes.Contains(typeName)) continue;
             if (TypeMapper.ToTypeScript(typeName) != "string | number") continue; // Already a known type
@@ -58,6 +73,7 @@ static class ModelDiscoverer
                 {
                     models.Add(model);
                     discovered.Add(typeName);
+                    EnqueueReferencedModels(model, pending, discovered);
                 }
             }
             else if (recordDeclarations.TryGetValue(typeName, out var recordDecl))
@@ -67,6 +83,7 @@ static class ModelDiscoverer
                 {
                     models.Add(model);
                     discovered.Add(typeName);
+                    EnqueueReferencedModels(model, pending, discovered);
                 }
             }
         }
@@ -76,30 +93,19 @@ static class ModelDiscoverer
 
     private static void CollectTypeReferences(string tsType, HashSet<string> references)
     {
-        // Extract type names from TypeScript type strings
-        // e.g., "User" from "User", "Post" from "Post[]", "User" from "Record<string, User>"
-        var cleaned = tsType
-            .Replace("[]", "")
-            .Replace(" | null", "")
-            .Replace(" | undefined", "");
+        TypeReferenceCollector.CollectInto(tsType, references);
+    }
 
-        // Skip built-in TS types
-        if (cleaned is "string" or "number" or "boolean" or "unknown" or "null" or "undefined" or "any")
-            return;
-
-        // Handle Record<K, V> and other generics
-        if (cleaned.Contains('<'))
+    private static void EnqueueReferencedModels(ModelInfo model, Queue<string> pending, HashSet<string> discovered)
+    {
+        foreach (var property in model.Properties)
         {
-            var inner = cleaned[(cleaned.IndexOf('<') + 1)..cleaned.LastIndexOf('>')];
-            foreach (var part in inner.Split(','))
-                CollectTypeReferences(part.Trim(), references);
-            return;
+            foreach (var reference in TypeReferenceCollector.Collect(property.TypeScriptType))
+            {
+                if (!PrimitiveTypes.Contains(reference) && !discovered.Contains(reference))
+                    pending.Enqueue(reference);
+            }
         }
-
-        // Handle inline object types
-        if (cleaned.StartsWith('{')) return;
-
-        references.Add(cleaned);
     }
 
     private static ModelInfo? ExtractModelFromClass(ClassDeclarationSyntax classDecl)

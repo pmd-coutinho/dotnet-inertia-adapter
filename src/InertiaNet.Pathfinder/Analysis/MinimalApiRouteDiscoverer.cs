@@ -32,9 +32,10 @@ static class MinimalApiRouteDiscoverer
     {
         var routes = new List<RouteInfo>();
         var root = tree.GetRoot();
+        var stringValues = DiscoverStringValues(root);
 
         // Track MapGroup variable assignments: variable name → prefix
-        var groupPrefixes = DiscoverGroupPrefixes(root);
+        var groupPrefixes = DiscoverGroupPrefixes(root, stringValues);
 
         foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
@@ -50,14 +51,32 @@ static class MinimalApiRouteDiscoverer
             if (args.Count < 2)
                 continue;
 
-            // First arg: route template
-            if (args[0].Expression is not LiteralExpressionSyntax routeLiteral)
-                continue;
+            var lineSpan = invocation.GetLocation().GetLineSpan();
+            var sourceFile = lineSpan.Path;
+            var sourceLine = lineSpan.StartLinePosition.Line + 1;
 
-            var routeTemplate = routeLiteral.Token.ValueText;
+            // First arg: route template
+            var routeTemplate = ResolveStringExpression(args[0].Expression, stringValues);
+            if (routeTemplate == null)
+            {
+                PathfinderDiagnostics.Report(
+                    sourceFile,
+                    sourceLine,
+                    $"Skipped minimal API route '{methodName}' because the route template could not be resolved statically.");
+                continue;
+            }
 
             // Resolve group prefix from the expression the method is called on
-            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes);
+            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues);
+            if (memberAccess.Expression is InvocationExpressionSyntax && prefix == null)
+            {
+                PathfinderDiagnostics.Report(
+                    sourceFile,
+                    sourceLine,
+                    $"Skipped minimal API route '{routeTemplate}' because its inline MapGroup chain could not be resolved statically.");
+                continue;
+            }
+
             if (prefix != null)
                 routeTemplate = prefix.TrimEnd('/') + "/" + routeTemplate.TrimStart('/');
 
@@ -71,6 +90,15 @@ static class MinimalApiRouteDiscoverer
             var templateParamNames = templateParts.Select(p => p.Name.ToLowerInvariant()).ToHashSet();
 
             // Second arg: handler (lambda or method group)
+            if (!IsSupportedHandler(args[1].Expression))
+            {
+                PathfinderDiagnostics.Report(
+                    sourceFile,
+                    sourceLine,
+                    $"Skipped minimal API route '{routeTemplate}' because only lambda handlers are currently supported.");
+                continue;
+            }
+
             var parameters = ExtractHandlerParameters(args[1].Expression, templateParamNames, templateParts);
 
             // Extract [FromBody] parameter type
@@ -98,11 +126,6 @@ static class MinimalApiRouteDiscoverer
                 }
             }
 
-            // Capture source file and line
-            var lineSpan = invocation.GetLocation().GetLineSpan();
-            var sourceFile = lineSpan.Path;
-            var sourceLine = lineSpan.StartLinePosition.Line + 1;
-
             routes.Add(new RouteInfo(
                 ControllerFullName: "__MinimalApi__",
                 ControllerShortName: "__MinimalApi__",
@@ -121,7 +144,7 @@ static class MinimalApiRouteDiscoverer
         return routes;
     }
 
-    private static Dictionary<string, string> DiscoverGroupPrefixes(SyntaxNode root)
+    private static Dictionary<string, string> DiscoverGroupPrefixes(SyntaxNode root, Dictionary<string, string> stringValues)
     {
         var prefixes = new Dictionary<string, string>();
 
@@ -134,18 +157,20 @@ static class MinimalApiRouteDiscoverer
                 continue;
 
             var args = invocation.ArgumentList.Arguments;
-            if (args.Count < 1 || args[0].Expression is not LiteralExpressionSyntax literal)
+            if (args.Count < 1)
                 continue;
 
-            var groupPrefix = literal.Token.ValueText;
+            var groupPrefix = ResolveStringExpression(args[0].Expression, stringValues);
+            if (groupPrefix == null)
+                continue;
 
             // Resolve parent prefix
-            var parentPrefix = ResolvePrefix(memberAccess.Expression, prefixes);
+            var parentPrefix = ResolvePrefix(memberAccess.Expression, prefixes, stringValues);
             if (parentPrefix != null)
                 groupPrefix = parentPrefix.TrimEnd('/') + "/" + groupPrefix.TrimStart('/');
 
             // Find the variable this is assigned to
-            var variableName = GetAssignedVariable(invocation);
+            var variableName = IsNestedMapGroupInvocation(invocation) ? null : GetAssignedVariable(invocation);
             if (variableName != null)
                 prefixes[variableName] = groupPrefix;
         }
@@ -181,15 +206,154 @@ static class MinimalApiRouteDiscoverer
         return null;
     }
 
-    private static string? ResolvePrefix(ExpressionSyntax expression, Dictionary<string, string> groupPrefixes)
+    private static bool IsNestedMapGroupInvocation(InvocationExpressionSyntax invocation)
+        => invocation.Parent is MemberAccessExpressionSyntax parentMember &&
+           parentMember.Name.Identifier.Text == "MapGroup" &&
+           parentMember.Parent is InvocationExpressionSyntax;
+
+    private static string? ResolvePrefix(
+        ExpressionSyntax expression,
+        Dictionary<string, string> groupPrefixes,
+        Dictionary<string, string> stringValues)
     {
         if (expression is IdentifierNameSyntax identifier)
         {
-            return groupPrefixes.GetValueOrDefault(identifier.Identifier.Text);
+            return groupPrefixes.GetValueOrDefault(identifier.Identifier.Text)
+                ?? stringValues.GetValueOrDefault(identifier.Identifier.Text);
+        }
+
+        if (expression is InvocationExpressionSyntax invocation &&
+            invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
+            memberAccess.Name.Identifier.Text == "MapGroup" &&
+            invocation.ArgumentList.Arguments.Count > 0)
+        {
+            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues);
+            var segment = ResolveStringExpression(invocation.ArgumentList.Arguments[0].Expression, stringValues);
+
+            if (segment == null)
+                return null;
+
+            return prefix == null
+                ? segment
+                : prefix.TrimEnd('/') + "/" + segment.TrimStart('/');
         }
 
         return null;
     }
+
+    private static Dictionary<string, string> DiscoverStringValues(SyntaxNode root)
+    {
+        var bindings = new List<(string Key, ExpressionSyntax Expression)>();
+
+        foreach (var local in root.DescendantNodes().OfType<LocalDeclarationStatementSyntax>())
+        {
+            foreach (var variable in local.Declaration.Variables)
+            {
+                if (variable.Initializer?.Value != null)
+                    bindings.Add((variable.Identifier.Text, variable.Initializer.Value));
+            }
+        }
+
+        foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+        {
+            var typeName = (field.Parent as TypeDeclarationSyntax)?.Identifier.Text;
+
+            foreach (var variable in field.Declaration.Variables)
+            {
+                if (variable.Initializer?.Value == null)
+                    continue;
+
+                bindings.Add((variable.Identifier.Text, variable.Initializer.Value));
+
+                if (!string.IsNullOrWhiteSpace(typeName))
+                    bindings.Add(($"{typeName}.{variable.Identifier.Text}", variable.Initializer.Value));
+            }
+        }
+
+        var resolved = new Dictionary<string, string>(StringComparer.Ordinal);
+        var progress = true;
+
+        while (progress)
+        {
+            progress = false;
+
+            foreach (var (key, expression) in bindings)
+            {
+                if (resolved.ContainsKey(key))
+                    continue;
+
+                var value = ResolveStringExpression(expression, resolved);
+                if (value == null)
+                    continue;
+
+                resolved[key] = value;
+                progress = true;
+            }
+        }
+
+        return resolved;
+    }
+
+    private static string? ResolveStringExpression(ExpressionSyntax expression, Dictionary<string, string> stringValues)
+    {
+        return expression switch
+        {
+            LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.StringLiteralExpression)
+                => literal.Token.ValueText,
+            IdentifierNameSyntax identifier
+                => stringValues.GetValueOrDefault(identifier.Identifier.Text),
+            MemberAccessExpressionSyntax memberAccess
+                => stringValues.GetValueOrDefault(memberAccess.ToString()),
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.AddExpression)
+                => ResolveBinaryString(binary, stringValues),
+            InterpolatedStringExpressionSyntax interpolated
+                => ResolveInterpolatedString(interpolated, stringValues),
+            ParenthesizedExpressionSyntax parenthesized
+                => ResolveStringExpression(parenthesized.Expression, stringValues),
+            _ => null,
+        };
+    }
+
+    private static string? ResolveBinaryString(BinaryExpressionSyntax binary, Dictionary<string, string> stringValues)
+    {
+        var left = ResolveStringExpression(binary.Left, stringValues);
+        var right = ResolveStringExpression(binary.Right, stringValues);
+
+        return left == null || right == null ? null : left + right;
+    }
+
+    private static string? ResolveInterpolatedString(
+        InterpolatedStringExpressionSyntax interpolated,
+        Dictionary<string, string> stringValues)
+    {
+        var parts = new List<string>();
+
+        foreach (var content in interpolated.Contents)
+        {
+            switch (content)
+            {
+                case InterpolatedStringTextSyntax text:
+                    parts.Add(text.TextToken.ValueText);
+                    break;
+                case InterpolationSyntax interpolation:
+                {
+                    var resolved = ResolveStringExpression(interpolation.Expression, stringValues);
+                    if (resolved == null)
+                        return null;
+
+                    parts.Add(resolved);
+                    break;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        return string.Concat(parts);
+    }
+
+    private static bool IsSupportedHandler(ExpressionSyntax handler)
+        => handler is ParenthesizedLambdaExpressionSyntax or SimpleLambdaExpressionSyntax;
 
     private static RouteParameter[] ExtractHandlerParameters(ExpressionSyntax handler,
         HashSet<string> templateParamNames, List<RouteTemplateParser.TemplatePart> templateParts)

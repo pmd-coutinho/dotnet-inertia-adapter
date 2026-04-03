@@ -41,6 +41,7 @@ static class BarrelFileWriter
                      .OrderBy(f => f))
         {
             var name = Path.GetFileNameWithoutExtension(file);
+            var exportName = NameUtils.SafeJsName(name);
 
             if (useNamedExports)
             {
@@ -49,7 +50,7 @@ static class BarrelFileWriter
             }
             else
             {
-                sb.AppendLine($"export {{ default as {name} }} from './{name}'");
+                sb.AppendLine($"export {{ default as {exportName} }} from './{name}'");
             }
         }
 
@@ -60,7 +61,8 @@ static class BarrelFileWriter
             if (File.Exists(indexFile) || Directory.GetFiles(subDir, "*.ts").Length > 0)
             {
                 var dirName = Path.GetFileName(subDir);
-                sb.AppendLine($"export * as {dirName} from './{dirName}'");
+                var exportName = NameUtils.SafeJsName(dirName);
+                sb.AppendLine($"export * as {exportName} from './{dirName}'");
             }
         }
 

@@ -116,7 +116,10 @@ public interface IInertiaService
 
     // ── SSR exclusions ───────────────────────────────────────────────────────
 
-    /// <summary>Excludes specific URL paths from SSR (v3).</summary>
+    /// <summary>
+    /// Excludes URL paths from SSR for the current response.
+    /// When called without arguments, excludes the current request path.
+    /// </summary>
     IInertiaService WithoutSsr(params string[] paths);
 
     // ── Conditional props ─────────────────────────────────────────────────────
