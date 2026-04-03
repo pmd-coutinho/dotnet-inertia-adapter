@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <InertiaNetPlatformVersionPrefix>3.0.0</InertiaNetPlatformVersionPrefix>
+    <InertiaNetPlatformVersionPrefix>3.0.2</InertiaNetPlatformVersionPrefix>
     <InertiaNetDefaultVersionSuffix>alpha.1</InertiaNetDefaultVersionSuffix>
 
     <InertiaNetPlatformPackageVersion Condition="'$(InertiaNetPlatformPackageVersion)' == ''">$(InertiaNetPlatformVersionPrefix)-$(InertiaNetDefaultVersionSuffix)</InertiaNetPlatformPackageVersion>
