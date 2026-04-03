@@ -324,6 +324,8 @@ Each starter includes:
 
 - an ASP.NET Core app configured with `AddInertia`, `AddViteHelper`, and a root Razor view
 - a `ClientApp/` frontend workspace with a minimal entrypoint and `Home` page
+- a `.devcontainer/` configuration with .NET and Node ready to go
+- a committed `wwwroot/` via `.gitkeep`, so Vite and static asset output have a stable home from day one
 - Vite configuration wired to `wwwroot`
 - `MapInertia` plus a fallback route for SPA-style navigation
 

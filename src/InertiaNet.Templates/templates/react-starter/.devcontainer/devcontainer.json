@@ -1,0 +1,19 @@
+{
+  "name": "InertiaNet React Starter",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:1-10.0-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "forwardPorts": [5000, 5001, 5173],
+  "postCreateCommand": "dotnet restore && cd ClientApp && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "EditorConfig.EditorConfig"
+      ]
+    }
+  }
+}
