@@ -52,13 +52,13 @@ Inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder).
 ### As a .NET global tool
 
 ```bash
-dotnet tool install --global InertiaNet.Pathfinder
+dotnet tool install --global InertiaNet.Pathfinder --prerelease
 ```
 
 ### As a local tool
 
 ```bash
-dotnet tool install InertiaNet.Pathfinder
+dotnet tool install InertiaNet.Pathfinder --prerelease
 ```
 
 ---
@@ -94,7 +94,7 @@ Generated output is staged before committing. Pathfinder tracks owned paths in `
 ### 2. Import and use in your frontend
 
 ```typescript
-import { Posts } from './pathfinder/actions'
+import { posts as Posts } from './pathfinder/actions'
 
 // Navigate with Inertia
 router.visit(Posts.index())
@@ -182,12 +182,12 @@ Pathfinder discovers routes from three ASP.NET Core routing paradigms:
 - Minimal API groups assigned to variables via `var posts = app.MapGroup("/posts")`
 - Minimal API inline `MapGroup(...)` chains when every prefix segment can be resolved statically
 - Minimal API lambda handlers (`() => ...`, `(id) => ...`, `(id, [FromBody] dto) => ...`)
-- Same-file Minimal API method-group handlers (`MapGet(..., GetPost)`) when the target method can be resolved in the same C# file
+- Source method-group handlers across evaluated files/project references when semantic resolution identifies one method
 
 ### Explicitly Unsupported For Now
 
 - Minimal API route templates or group prefixes that depend on runtime values or other non-resolvable expressions
-- Cross-file or otherwise non-resolvable Minimal API method-group handlers for parameter/body discovery
+- Dynamic delegate variables, ambiguous overloads and handlers without discoverable source declarations
 
 Unsupported patterns are skipped with a warning instead of generating partial or misleading output.
 
@@ -314,7 +314,7 @@ Queries use ASP.NET-friendly repeated array keys, dot-separated object paths, an
 The `.form()` method returns `{ action, method, data? }` for HTML form attributes. For HTTP methods not supported by HTML forms (PUT, PATCH, DELETE), it automatically uses method spoofing — sending as POST with `_method` in the `data` field:
 
 ```typescript
-import { Posts } from './pathfinder/actions'
+import { posts as Posts } from './pathfinder/actions'
 
 // GET/POST routes — no spoofing needed
 Posts.index.form()
@@ -421,7 +421,7 @@ app.MapGet("/posts/{id}", handler).WithName("Posts.Show");
 ```
 
 ```typescript
-import { Posts } from './pathfinder/routes'
+import { posts as Posts } from './pathfinder/routes'
 
 Posts.show(42)
 // → { url: "/posts/42", method: "get" }
@@ -462,6 +462,7 @@ export interface DashboardProps {
 ### Anonymous objects
 
 ```csharp
+// posts is a typed collection, for example Post[].
 inertia.Render("Posts/Index", new
 {
     Posts = posts,
@@ -473,7 +474,7 @@ Generates `pathfinder/types/Posts.Index.ts`:
 
 ```typescript
 export interface PostsIndexProps {
-    posts: unknown
+    posts: Post[]
     totalCount: number
 }
 ```
@@ -489,6 +490,8 @@ import type { PropsFor, ComponentName } from './pathfinder/types/page-map'
 type DashboardPage = PropsFor<'Dashboard'>
 const component: ComponentName = 'Dashboard'
 ```
+
+Page interfaces include an unknown index signature for Inertia's `PageProps` constraint. In Vue `defineProps`, import the concrete generated interface (`types/Posts.Index`); `PropsFor` is suitable for TypeScript and `usePage` but its generic indexed-access map exceeds Vue's runtime props compiler.
 
 `Share(key, value)`, `ShareOnce` and `ShareProps(dto)` contribute inferred types to `types/shared.ts`. It augments `@inertiajs/core`'s `PageProps` and is included by the generated type barrel/map. Shared fields are optional because discovery does not prove that every request executes a sharing call. API dot paths become nested fields; literal JSON property names containing dots remain literal. Alternative render shapes for the same component become unions of field types with optional fields where needed.
 
@@ -541,10 +544,11 @@ Module paths, runtime helper names, payload aliases and validation exports are a
 | `long`, `ulong`, `BigInteger` | `number`, `string`, or `number \| bigint`, according to the output profile |
 | `bool` | `boolean` |
 | `object` | `unknown` |
-| `T?` / `Nullable<T>` | `T \| null` |
-| `List<T>`, `IEnumerable<T>`, `T[]` | `T[]` |
+| `T?` / `Nullable<T>` | `T \| null` when written; optional `T` when nulls are omitted |
+| `byte[]` | Base64 `string` |
+| `List<T>`, `IEnumerable<T>`, other `T[]` | `T[]` |
 | `Dictionary<K, V>` | `Record<string, V>` (JSON object keys are strings) |
-| `Func<T>`, `Lazy<T>`, `Task<T>` | Unwrapped to `T` |
+| `Func<T>`, `Lazy<T>`, `Task<T>`, `ValueTask<T>` | Unwrapped to `T` |
 | Registered enums | Enum type name |
 | Other classes | Referenced by name (generates model) |
 
@@ -700,7 +704,7 @@ Pathfinder also ships an opt-in MSBuild companion package for build and `dotnet 
 
 ```bash
 dotnet new tool-manifest
-dotnet tool install InertiaNet.Pathfinder
+dotnet tool install InertiaNet.Pathfinder --prerelease
 dotnet tool restore
 ```
 
@@ -708,7 +712,7 @@ dotnet tool restore
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="3.0.2-alpha.1" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="3.5.2-alpha.1" PrivateAssets="all" />
 </ItemGroup>
 ```
 
@@ -771,7 +775,7 @@ Pattern matching:
 ### React
 
 ```tsx
-import { Posts } from './pathfinder/actions'
+import { posts as Posts } from './pathfinder/actions'
 import type { PostsIndexProps } from './pathfinder/types/Posts.Index'
 import { router, useForm, Link } from '@inertiajs/react'
 
@@ -809,7 +813,7 @@ export default function PostsIndex({ posts, totalCount }: PostsIndexProps) {
 
 ```vue
 <script setup lang="ts">
-import { Posts } from './pathfinder/actions'
+import { posts as Posts } from './pathfinder/actions'
 import type { PostsIndexProps } from './pathfinder/types/Posts.Index'
 import { router, useForm, Link } from '@inertiajs/vue3'
 
@@ -842,15 +846,15 @@ function submit() {
 
 ```typescript
 // Import a specific controller's actions
-import { Posts } from './pathfinder/actions'
 import Posts from './pathfinder/actions/posts'
+// Alternative: import { posts as Posts } from './pathfinder/actions'
 
 // Import all actions
 import * as actions from './pathfinder/actions'
-actions.Posts.index()
+actions.posts.index()
 
 // Import named routes
-import { Posts } from './pathfinder/routes'
+import { posts as Posts } from './pathfinder/routes'
 
 // Import page prop types
 import type { DashboardProps } from './pathfinder/types/Dashboard'

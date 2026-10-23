@@ -8,10 +8,14 @@ Includes support for deferred props, merge props, once props, infinite scroll, h
 
 ---
 
+## Verified integration
+
+The [React/Vue playground](samples/Playground/README.md) demonstrates typed Pathfinder imports, CRUD, error bags, flash, cookie authentication, deferred props, scroll merging, native forms and SSR. Its browser tests exercise hydration, CSR fallback, custom roots and actual antiforgery cookies/headers. Runtime tests cover .NET 8, 9 and 10; generated-code fixtures pin Inertia **3.0.2** and **3.9.1**. The playground uses 3.9.1.
+
 ## Installation
 
 ```
-dotnet add package InertiaNet
+dotnet add package InertiaNet --prerelease
 ```
 
 ---
@@ -22,6 +26,7 @@ dotnet add package InertiaNet
 
 ```csharp
 // Program.cs
+builder.Services.AddControllersWithViews();
 builder.Services.AddInertia();
 
 // Optionally register the Vite helper (enables <vite-input> tag helpers)
@@ -36,16 +41,20 @@ app.UseInertia(); // after UseSession / UseAuthentication
 
 ### Session & TempData
 
-Flash data and validation error forwarding across redirects require ASP.NET Core session middleware:
+Flash data and validation errors across redirects require ASP.NET Core TempData services. `AddControllersWithViews()` registers the default cookie TempData provider, which works without session middleware.
+
+To use the session-backed provider instead:
 
 ```csharp
+builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession();
+builder.Services.AddControllersWithViews().AddSessionStateTempDataProvider();
 // ...
 app.UseSession();
-app.UseInertia(); // must come after UseSession
+app.UseInertia();
 ```
 
-Without session middleware, flash data and validation forwarding will not persist across redirects.
+Register a distributed session/cache provider for a multi-instance deployment. Without a TempData provider, redirect state cannot persist.
 
 ### 3. Create the root layout
 
@@ -65,7 +74,7 @@ Add `Views/Shared/App.cshtml`:
 <body>
     <vite-react-refresh />
     <inertia />
-    <vite-input src="src/main.tsx" />
+    <vite-input src="src/app.tsx" />
 </body>
 </html>
 ```
@@ -116,9 +125,23 @@ builder.Services.AddInertiaWithSsr(options =>
 {
     options.Ssr.Url = "http://127.0.0.1:13714"; // Node.js SSR server
     options.Ssr.ThrowOnError = false;           // Fall back to CSR on failure
+    options.Ssr.Timeout = TimeSpan.FromSeconds(3); // Default; bounds CSR fallback latency
     options.Ssr.ExcludePaths = ["/admin/*"];  // Skip SSR for matching routes
 });
+
+// Configure headers, handlers, proxy settings, or a shorter HttpClient timeout.
+builder.Services.AddHttpClient(InertiaNet.Ssr.InertiaSsr.HttpClientName, client =>
+{
+    client.DefaultRequestHeaders.Add("X-SSR-App", "my-app");
+});
+
+// Optional: register with your application's existing health endpoint.
+builder.Services.AddHealthChecks().AddInertiaSsr();
 ```
+
+SSR timeout covers the request and response body. Set `Timeout.InfiniteTimeSpan` to disable the adapter's limit. Client disconnects propagate cancellation; they do not become CSR fallbacks. `ThrowOnError` exposes `SsrException.ErrorType`, including structured server errors (`BrowserApi`, `ComponentResolution`, `Render`) and local `Connection`/`Timeout` failures. The optional health check uses the same named client and timeout to probe the dedicated Node server at `Ssr.Url + "/health"`; disabled SSR is healthy. It does not map a health endpoint or probe Vite's development render bridge.
+
+Subscribe to the `InertiaNet.SSR` ActivitySource and Meter through your usual .NET/OpenTelemetry configuration. Render spans include the component, outcome, response status, and classified error. `inertianet.ssr.renders` counts renders and `inertianet.ssr.duration` measures seconds, with `outcome` (`success`, `fallback`, `failure`, `cancelled`) and failure-only `error.type` tags. Prop values are excluded from telemetry.
 
 Recommended deployment model:
 
@@ -168,7 +191,7 @@ At a high level, InertiaNet processes requests in four stages:
 3. `PropsResolver` resolves the page props.
    Shared props, page props, deferred props, merge props, once props, scroll metadata, and event handlers are all applied here.
 4. The response is written.
-   Inertia XHR requests receive JSON. Initial page loads render the root Razor view, optionally with SSR markup injected via `<inertia-head />` and `<inertia />`.
+   Inertia XHR requests receive JSON. Initial page loads render the root Razor view, optionally with SSR markup injected via `<inertia-head />` and `<inertia />`. Successful official SSR bodies already include their root and page script and are emitted directly.
 
 This split is intentional:
 
@@ -282,6 +305,51 @@ public class PostsController : Controller
 `ControllerBase.Inertia(...)` remains the primary MVC surface.
 If you need data for the root Razor view that should not be exposed to the frontend, use `WithViewData(...)` on the returned `InertiaResult`.
 
+### Typed page contracts
+
+Pass a props instance to the generic rendering overload, or declare a component that fixes its props type:
+
+```csharp
+public record DashboardProps(string UserName, int TotalPosts);
+
+public static class Pages
+{
+    public static readonly InertiaComponent<DashboardProps> Dashboard = new("Dashboard");
+}
+
+// The compiler checks the component's props type.
+return inertia.Render(Pages.Dashboard, new DashboardProps("Ana", 42));
+// Minimal APIs:
+return InertiaResults.Inertia(Pages.Dashboard, new DashboardProps("Ana", 42));
+// String-based generic overload:
+return inertia.Render<DashboardProps>("Dashboard", new DashboardProps("Ana", 42));
+```
+
+Typed props honor supported System.Text.Json property names, ignore conditions, extension data, and configured contracts without evaluating deferred wrappers early. Dictionaries retain their explicit top-level keys. An object-level custom converter owns its entire representation and must produce a JSON object.
+
+Pathfinder generates a component-to-props map (`PropsFor<'Dashboard'>`), inferred shared-prop augmentation for `@inertiajs/core`, and separate JSON body, query and multipart contracts. Its [contract profile documentation](src/InertiaNet.Pathfinder/README.md#serialization-profiles) explains how to match custom JSON settings without running application configuration during generation.
+
+For CI checks against MVC conventions, conditional registration or custom endpoint extensions, explicitly export `InertiaEndpointManifest.Capture(app)` and pass it to `pathfinder --endpoint-manifest endpoints.json --strict --check`. See the [endpoint-validation workflow](src/InertiaNet.Pathfinder/README.md#optional-registered-endpoint-validation).
+
+### Large integers
+
+The default JSON-number policy retains existing behavior. To keep `long`, `ulong`, and `BigInteger` values exact in JavaScript, choose a transport explicitly:
+
+```csharp
+builder.Services.AddInertia(options =>
+    options.LargeIntegerSerialization = LargeIntegerSerialization.BigInt);
+```
+
+`BigInt` sends safe integers as numbers and larger values as Inertia `$bigint` markers, with `preserveBigIntegers: true`. This requires a client with the BigInt parser; it is tested against **Inertia 3.9.1**. Use `LargeIntegerSerialization.String` for decimal strings compatible with older clients, including the tested 3.0.2 client. Both modes cover nested props and flash. `BigInteger` also supports numeric transport. Decimal/floating-point values, dictionary keys and protocol timestamps retain their existing representation; explicit application converters take precedence.
+
+Match Pathfinder with a contract file, for example `{ "output": { "largeIntegers": "BigInt" } }`, and `pathfinder --contracts contracts.json`. The generated output uses `number | bigint` in marker mode and `string` in string mode. JSON request handling remains controlled by ASP.NET's JSON configuration; modern Inertia clients submit BigInt request values as decimal strings.
+
+Test responses with `HasBigIntegerProp(path, expected)`, `HasBigIntegerFlash(path, expected)` and `HasPreserveBigIntegers()` to compare exact integer values without floating-point conversion.
+
+### Antiforgery and native forms
+
+The starters configure ASP.NET's antiforgery header as `X-XSRF-TOKEN`, set the readable `XSRF-TOKEN` cookie on initial GETs, and validate unsafe MVC actions. Native forms use the `__RequestVerificationToken` field and `_method` override middleware. The [playground](samples/Playground/README.md) shows the complete flow and tests missing-token rejection plus successful JSON/native submissions. Minimal API applications should explicitly validate unsafe JSON endpoints with `IAntiforgery` or appropriate endpoint metadata.
+
 ## Analyzers
 
 `InertiaNet.Analyzers` adds Roslyn diagnostics for common InertiaNet and Pathfinder mistakes.
@@ -292,13 +360,13 @@ Current diagnostics:
 - `INERTIA002` `JsonSerializerOptions` naming policies that do not affect the Inertia envelope
 - `INERTIA003` missing page component files when page validation is enabled
 - `PATHFINDER001` Minimal API route templates that Pathfinder cannot resolve statically
-- `PATHFINDER002` Minimal API method-group handlers that Pathfinder does not currently support
+- `PATHFINDER002` Minimal API handlers that cannot be resolved as a lambda or unambiguous source method group
 
 Add it to your app project like any other analyzer package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Analyzers" Version="0.1.0-alpha.1" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Analyzers" Version="3.5.2-alpha.1" PrivateAssets="all" />
 </ItemGroup>
 ```
 
@@ -314,11 +382,13 @@ Available templates:
 Install and use them:
 
 ```bash
-dotnet new install InertiaNet.Templates
+dotnet new install InertiaNet.Templates@VERSION
 
 dotnet new inertianet-react -n MyReactApp
 dotnet new inertianet-vue -n MyVueApp
 ```
+
+Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current base is 3.5.2; automatic builds use `3.5.2-alpha.<CI run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Use the same published build for package references shown with the local `alpha.1` example.
 
 Each starter includes:
 
@@ -370,6 +440,19 @@ inertia.Render("Dashboard", new
     topProducts = inertia.Defer(async (sp, ct) => await GetTopProductsAsync(), group: "charts"),
 });
 ```
+
+### Deferred-prop recovery
+
+Use `.Rescue()` to keep a failed deferred section from failing the whole response:
+
+```csharp
+inertia.Render("Dashboard", new
+{
+    stats = inertia.Defer(async (sp, ct) => await LoadStatsAsync(ct)).Rescue(),
+});
+```
+
+A failed rescued prop is omitted and listed in `rescuedProps`; the error is logged. The client can retry that prop. Cancellation still propagates. This requires a client release supporting rescued deferred props.
 
 ### Merge Props
 
@@ -568,12 +651,12 @@ This hook runs for both MVC and Minimal API Inertia responses.
 
 Precognition lets the frontend validate form data against server-side rules in real-time without submitting the form. When the client sends `Precognition: true`, the server runs model binding and validation only:
 
-- **Valid** → 204 No Content + `Precognition-Success: true`
-- **Invalid** → 422 Unprocessable Entity with validation errors as JSON
+- **Valid** → 204 No Content + `Precognition: true` and `Precognition-Success: true`
+- **Invalid** → 422 Unprocessable Entity + `Precognition: true`, with `{ message, errors }` JSON
 
 ```csharp
 [HttpPost]
-public IActionResult Store([FromBody] CreateUserRequest request)
+public async Task<IActionResult> Store([FromBody] CreateUserRequest request)
 {
     // Action body never executes for precognition requests —
     // the InertiaPrecognitionFilter short-circuits after validation.
@@ -582,7 +665,16 @@ public IActionResult Store([FromBody] CreateUserRequest request)
 }
 ```
 
-The `InertiaPrecognitionFilter` is registered globally and runs before other filters.
+The MVC filter runs before `[ApiController]` automatic validation responses. It honors `Precognition-Validate-Only` field paths and never executes the action on a validation-only request.
+
+Minimal APIs opt in per endpoint or route group:
+
+```csharp
+app.MapPost("/users", ([FromBody] CreateUserRequest request) => SaveUser(request))
+   .WithInertiaPrecognition();
+```
+
+The Minimal API filter validates DataAnnotations on bound DTOs, nested objects and collections before invoking the handler. Ordinary submissions still execute normally; the filter does not replace the application's normal validation flow. Request-body parsing/binding happens before endpoint filters, so malformed payloads may be rejected by ASP.NET before the Precognition filter runs.
 
 ---
 
@@ -644,13 +736,15 @@ These tag helpers assume your app has Razor view support enabled and that your c
 <inertia-head />
 <vite-react-refresh />
 <inertia />
-<vite-input src="src/main.tsx" />
+<vite-input src="src/app.tsx" />
 ```
 
 The `vite-input` tag helper:
 
 - **HMR mode** (when `PublicDirectory/HotFile` exists): injects the Vite dev-server client and the requested module.
-- **Production**: reads `wwwroot/build/manifest.json`, resolves the hashed filename, and emits `<script type="module">` for JS entries plus any associated `<link rel="stylesheet">` CSS chunks.
+- **Production**: reads `wwwroot/build/manifest.json`, resolves the hashed filename, and emits `<script type="module">` for JS entries. It follows static imports for deduplicated stylesheets and module preloads, handles cycles, and leaves dynamic imports unloaded.
+
+`AddViteHelper()` registers a shared parsed-manifest cache, also used for component-existence checks. Every read checks file length and last-write time; deployments invalidate the cache when either changes. Hot mode bypasses it. Set `ViteOptions.CacheManifest = false` if your deployment replaces content while preserving both metadata values.
 
 ### Vite config
 
@@ -665,7 +759,7 @@ import laravel from 'laravel-vite-plugin';
 export default defineConfig({
   plugins: [
     laravel({
-      input: ['src/main.tsx'],
+      input: ['src/app.tsx'],
       publicDirectory: '../wwwroot',
     }),
     react(),
@@ -698,17 +792,44 @@ builder.Services.AddInertia(options =>
 `InertiaNet` ships a testing API modelled after Laravel's `assertInertia` helpers:
 
 ```csharp
+using InertiaNet.Testing;
+
 // In an xUnit / NUnit integration test
-var response = await _client.GetAsync("/posts");
-var page = await response.AssertInertiaAsync();
+var page = await _client.GetInertiaAsync("/posts");
 
 page.HasComponent("Posts/Index")
     .HasProp("posts")
     .HasUrl("/posts");
 
+var partial = await _client.ReloadInertiaAsync(page,
+    new InertiaReloadOptions { Only = ["posts"], Reset = ["posts"] });
+
+page.HasDeferredProp("statistics", "stats");
+var deferred = await _client.LoadDeferredPropsAsync(page, ["stats"]);
+deferred["stats"].HasProp("statistics");
+
 var redirect = await _client.GetAsync("/stale-assets", HttpCompletionOption.ResponseHeadersRead);
 redirect.AssertVersionRedirect().To("/stale-assets");
 ```
+
+Set the client's default `X-Inertia-Version` header when the tested application requires a known asset version. Reloads carry the asserted page's component and version and support `Only`, `Except`, `Reset`, and `ExceptOnceProps`. Deferred helpers send one partial request per selected group and return each server response; they do not simulate browser prop merging or once-prop expiry. Requests leave the client's default headers unchanged.
+
+`response.AssertInertiaAsync()` remains available for manually sent requests. Metadata assertions include `HasMergeProp`, `HasPrependProp`, `HasDeepMergeProp`, `HasMatchingProp`, `HasRescuedProp`, `HasOnceProp`, and `HasScrollProp`. The last two accept an optional complete expected metadata object, including explicit null fields. `HasNullProp` checks an explicit JSON null.
+
+### Development prop diagnostics
+
+```csharp
+builder.Services.AddInertia(options =>
+{
+    options.PropDiagnostics.Enabled = true;
+    options.PropDiagnostics.SlowPropThreshold = TimeSpan.FromMilliseconds(100);
+    options.PropDiagnostics.MaxEntries = 200;
+});
+```
+
+Diagnostics run only in the Development environment by default; `DevelopmentOnly = false` explicitly allows other environments. They classify values, callbacks, providers, and wrappers and record resolved/excluded/deferred/optional/cached/rescued/failed/cancelled outcomes. Durations include nested resolution. Debug logs report completed measurements; successful props exceeding the threshold use warning-level logs. No prop values are captured or added to the response. Use `HttpContext.GetInertiaPropDiagnostics()` from `InertiaNet.Diagnostics` to inspect a snapshot in request hooks or local tooling. Collection is bounded by `MaxEntries`, reserving parent measurements before nested values fill the limit.
+
+Entries include the registered route name, deferred group and once-cache key when available. After rendering, `HttpContext.GetInertiaRenderDiagnostics()` provides component/format, success, rendering duration and output bytes before response compression. The byte counter observes writes without buffering or serializing props again, and restores the original response stream on failures. Read completed render metrics from middleware after the endpoint or from diagnostic logs.
 
 ---
 

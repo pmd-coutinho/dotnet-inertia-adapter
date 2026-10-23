@@ -1,5 +1,11 @@
 # Releasing
 
+Build with a current patched .NET SDK. SourceLink is included in SDK 8 and newer;
+do not add the old explicit `Microsoft.SourceLink.GitHub` 8.0.0 reference, which
+overrides the SDK tooling and brings back the vulnerable build-task dependency.
+See [the SDK SourceLink guidance](https://github.com/dotnet/sourcelink#using-source-link-in-net-projects)
+and [Microsoft's advisory](https://github.com/advisories/GHSA-23fw-v26w-5fgq).
+
 ## Publishing Model
 
 This repository uses one **platform-wide version train** for all publishable packages:
@@ -56,7 +62,9 @@ The shared platform version is centralized in `Directory.Build.props`:
 
 All publishable packages now use the same resolved package version.
 
-Default local builds still use the shared `alpha.1` suffix.
+The base is aligned with the reviewed [inertia-laravel v3.5.2 release](https://github.com/inertiajs/inertia-laravel/releases/tag/v3.5.2), rechecked on 2026-10-23. This identifies the server reference release; JavaScript client compatibility is tested independently (currently 3.0.2 and 3.9.1).
+
+Default local builds use `3.5.2-alpha.1`. Successful master CI publishes `3.5.2-alpha.<CI run number>` through the existing workflow. The version base does not assert complete feature parity.
 
 ## CI Prerelease Version Format
 
@@ -66,9 +74,9 @@ On every successful `master` merge, the publish workflow computes:
 
 Examples:
 
-- `InertiaNet` -> `3.0.0-alpha.142`
-- `InertiaNet.Pathfinder` -> `3.0.0-alpha.142`
-- `InertiaNet.Templates` -> `3.0.0-alpha.142`
+- `InertiaNet` -> `3.5.2-alpha.142`
+- `InertiaNet.Pathfinder` -> `3.5.2-alpha.142`
+- `InertiaNet.Templates` -> `3.5.2-alpha.142`
 
 The repository itself is not mutated during publishing. CI computes the final versions at pack time.
 
@@ -79,15 +87,15 @@ Stable releases use the same workflow file via `workflow_dispatch`.
 Run the workflow manually and choose:
 
 - `release_kind = stable`
-- `version_prefix = 3.0.0` (or the next platform version you intend to publish)
+- `version_prefix = 3.5.2` (or the next platform version you intend to publish)
 
 That publishes all packages at the exact stable version:
 
-- `InertiaNet` -> `3.0.0`
-- `InertiaNet.Pathfinder` -> `3.0.0`
-- `InertiaNet.Pathfinder.Build` -> `3.0.0`
-- `InertiaNet.Analyzers` -> `3.0.0`
-- `InertiaNet.Templates` -> `3.0.0`
+- `InertiaNet` -> `3.5.2`
+- `InertiaNet.Pathfinder` -> `3.5.2`
+- `InertiaNet.Pathfinder.Build` -> `3.5.2`
+- `InertiaNet.Analyzers` -> `3.5.2`
+- `InertiaNet.Templates` -> `3.5.2`
 
 You can also use `workflow_dispatch` with `release_kind = prerelease` if you ever need a manual prerelease.
 
