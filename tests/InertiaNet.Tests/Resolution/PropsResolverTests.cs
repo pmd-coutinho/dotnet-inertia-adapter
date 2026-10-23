@@ -217,7 +217,7 @@ public class PropsResolverTests
         props.Should().ContainKey("user");
         props.Should().ContainKey("title");
 
-        var user = props["user"].Should().BeOfType<Dictionary<string, object?>>().Subject;
+        var user = props["user"].Should().BeAssignableTo<IDictionary<string, object?>>().Subject;
         user.Should().ContainKey("name").WhoseValue.Should().Be("Alice");
         user.Should().ContainKey("email").WhoseValue.Should().Be("alice@example.com");
     }

@@ -83,8 +83,8 @@ public sealed class InertiaResult : IActionResult, IResult
             // 1. Run PropsResolver
             var resolver = new PropsResolver(httpContext, _component, services);
             var (resolvedProps, metadata) = await resolver.ResolveAsync(
-                new Dictionary<string, object?>(_sharedProps),
-                new Dictionary<string, object?>(_pageProps),
+                PropObjectDictionary.Copy(_sharedProps),
+                PropObjectDictionary.Copy(_pageProps),
                 ct);
 
             // 1b. Event hook: OnAfterResolveProps

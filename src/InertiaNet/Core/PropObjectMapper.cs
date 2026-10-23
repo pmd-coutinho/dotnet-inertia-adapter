@@ -12,8 +12,10 @@ internal static class PropObjectMapper
     public static Dictionary<string, object?> ToDictionary(object? value, JsonSerializerOptions options)
     {
         if (value is null) return [];
+        if (value is PropObjectDictionary mapped) return PropObjectDictionary.Copy(mapped);
         options.MakeReadOnly(populateMissingResolver: true);
         var contract = options.GetTypeInfo(value.GetType());
+        if (contract.Kind == JsonTypeInfoKind.Dictionary && TryStringDictionary(value, out var entries)) return entries;
 
         if (contract.Kind != JsonTypeInfoKind.Object)
         {
@@ -22,10 +24,12 @@ internal static class PropObjectMapper
             var json = JsonSerializer.SerializeToElement(value, contract);
             if (json.ValueKind != JsonValueKind.Object)
                 throw new ArgumentException("Inertia page props must serialize to a JSON object.", nameof(value));
-            return json.EnumerateObject().ToDictionary(p => p.Name, p => (object?)p.Value.Clone());
+            var converted = new PropObjectDictionary();
+            foreach (var property in json.EnumerateObject()) converted.Set(property.Name, property.Value.Clone(), true);
+            return converted;
         }
 
-        var result = new Dictionary<string, object?>();
+        var result = new PropObjectDictionary();
         foreach (var property in contract.Properties)
         {
             if (property.Get is null) continue;
@@ -58,14 +62,33 @@ internal static class PropObjectMapper
             if (property.IsExtensionData && propertyValue is IDictionary extensionData)
             {
                 foreach (DictionaryEntry entry in extensionData)
-                    result[(string)entry.Key] = entry.Value;
+                    result.Set((string)entry.Key, entry.Value, true);
             }
             else
             {
-                result[property.Name] = propertyValue;
+                result.Set(property.Name, propertyValue, true);
             }
         }
         return result;
+    }
+
+    internal static bool TryStringDictionary(object value, out Dictionary<string, object?> result)
+    {
+        result = [];
+        if (value is IDictionary dictionary && dictionary.Keys.Cast<object>().All(key => key is string))
+        {
+            foreach (DictionaryEntry entry in dictionary) result[(string)entry.Key] = entry.Value;
+            return true;
+        }
+        if (value is not IEnumerable sequence || !value.GetType().GetInterfaces().Any(type => type.IsGenericType
+            && type.GetGenericTypeDefinition() is var definition && (definition == typeof(IReadOnlyDictionary<,>) || definition == typeof(IDictionary<,>))
+            && type.GetGenericArguments()[0] == typeof(string))) return false;
+        foreach (var entry in sequence)
+        {
+            var type = entry!.GetType();
+            result[(string)type.GetProperty("Key")!.GetValue(entry)!] = type.GetProperty("Value")!.GetValue(entry);
+        }
+        return true;
     }
 
     private static bool IsDefault(object? value, Type type)

@@ -62,10 +62,12 @@ internal sealed class PropsResolver
         CancellationToken ct = default)
     {
         var shared = ExpandProviders(sharedProps);
+        var merged = PropObjectDictionary.Copy(shared);
+        var pages = ExpandProviders(pageProps);
+        foreach (var (key, value) in pages)
+            merged = Set(merged, key, value, IsLiteral(pages, key));
         foreach (var key in shared.Keys)
-            AddUnique(_sharedPropKeys, key.Split('.')[0]);
-        var merged = new Dictionary<string, object?>(shared);
-        foreach (var (key, value) in ExpandProviders(pageProps)) merged[key] = value;
+            AddUnique(_sharedPropKeys, IsLiteral(merged, key) ? key : key.Split('.')[0]);
         var resolved = await ResolvePropsAsync(UnpackDotKeys(merged), null, false, ct);
         return (resolved, new ResolvedMetadata(
             NonEmpty(_sharedPropKeys), NonEmpty(_mergeProps), NonEmpty(_prependProps),
@@ -79,35 +81,42 @@ internal sealed class PropsResolver
 
     private Dictionary<string, object?> ExpandProviders(Dictionary<string, object?> props, string? parent = null)
     {
-        var result = new Dictionary<string, object?>();
+        Dictionary<string, object?> result = props is PropObjectDictionary ? new PropObjectDictionary() : new();
         foreach (var (key, value) in props)
         {
             if (value is IProvidesInertiaProperties provider)
             {
                 using var measurement = _diagnostics?.Begin(parent is null ? key : $"{parent}.{key}", "provider");
-                foreach (var (providedKey, providedValue) in provider.ToInertiaProperties(new RenderContext(_component, _context)))
-                    result[providedKey] = providedValue;
+                var provided = provider.ToInertiaProperties(new RenderContext(_component, _context));
+                foreach (var (providedKey, providedValue) in provided)
+                    result = Set(result, providedKey, providedValue, parent is not null || provided is PropObjectDictionary literal && literal.LiteralKeys.Contains(providedKey));
                 measurement?.Complete("resolved");
             }
-            else result[key] = value;
+            else result = Set(result, key, value, IsLiteral(props, key));
         }
         return result;
     }
 
     private static Dictionary<string, object?> UnpackDotKeys(Dictionary<string, object?> props)
     {
-        var result = new Dictionary<string, object?>();
+        var result = new PropObjectDictionary();
         foreach (var (key, value) in props)
         {
+            if (IsLiteral(props, key)) { result.Set(key, value, true); continue; }
             var parts = key.Split('.');
             var target = result;
             for (var i = 0; i < parts.Length - 1; i++)
             {
-                if (!target.TryGetValue(parts[i], out var existing) || existing is not Dictionary<string, object?> nested)
-                    target[parts[i]] = nested = [];
+                if (!target.TryGetValue(parts[i], out var existing) || existing is not PropObjectDictionary nested)
+                {
+                    nested = new();
+                    if (existing is Dictionary<string, object?> previous)
+                        foreach (var (name, entry) in previous) nested.Set(name, entry, false);
+                    target.Set(parts[i], nested, true);
+                }
                 target = nested;
             }
-            target[parts[^1]] = value;
+            target.Set(parts[^1], value, true);
         }
         return result;
     }
@@ -116,7 +125,7 @@ internal sealed class PropsResolver
         Dictionary<string, object?> props, string? parent, bool parentWasResolved, CancellationToken ct)
     {
         props = ExpandProviders(props, parent);
-        var result = new Dictionary<string, object?>();
+        Dictionary<string, object?> result = props is PropObjectDictionary ? new PropObjectDictionary() : new();
         foreach (var (key, original) in props)
         {
             ct.ThrowIfCancellationRequested();
@@ -171,7 +180,7 @@ internal sealed class PropsResolver
                             metadata.GetNextPage(), metadata.GetCurrentPage(), _resetProps.Contains(path));
                 }
                 var resolvedParent = parentWasResolved || PropValueResolver.IsLazyValue(prop) || prop is IProvidesInertiaProperty || IsWrapper(prop);
-                result[key] = await ResolveContainerAsync(resolved, path, resolvedParent, ct);
+                result = Set(result, key, await ResolveContainerAsync(resolved, path, resolvedParent, ct), IsLiteral(props, key));
                 measurement?.Complete("resolved");
             }
             catch (OperationCanceledException)
@@ -187,31 +196,17 @@ internal sealed class PropsResolver
     {
         if (value is null || value is string) return value;
         var contract = _jsonOptions.GetTypeInfo(value.GetType());
-        if (contract.Kind == JsonTypeInfoKind.None) return value; // custom converter owns the value
+        if (contract.Kind == JsonTypeInfoKind.None && value is not PropObjectDictionary) return value; // custom converter owns the value
         if (_ancestors.Count >= (_jsonOptions.MaxDepth == 0 ? 64 : _jsonOptions.MaxDepth) || !_ancestors.Add(value))
             throw new JsonException($"A cycle or excessive depth was encountered in Inertia prop '{path}'.");
         try
         {
-            if (value is IReadOnlyDictionary<string, object?> readOnly)
-                return await ResolvePropsAsync(new(readOnly), path, parentWasResolved, ct);
-            if (value is IDictionary dictionary && dictionary.Keys.Cast<object>().All(key => key is string))
+            if (value is PropObjectDictionary mapped)
+                return await ResolvePropsAsync(NormalizeDictionaryKeys(mapped), path, parentWasResolved, ct);
+            if (contract.Kind == JsonTypeInfoKind.Dictionary)
             {
-                var entries = new Dictionary<string, object?>();
-                foreach (DictionaryEntry entry in dictionary) entries[(string)entry.Key] = entry.Value;
-                return await ResolvePropsAsync(entries, path, parentWasResolved, ct);
-            }
-            if (contract.Kind == JsonTypeInfoKind.Dictionary && value is IEnumerable dictionaryEntries)
-            {
-                var stringKeys = value.GetType().GetInterfaces().Any(type => type.IsGenericType
-                    && type.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>) && type.GetGenericArguments()[0] == typeof(string));
-                if (!stringKeys) return value; // Serializer owns non-string dictionary key conversion.
-                var entries = new Dictionary<string, object?>();
-                foreach (var entry in dictionaryEntries)
-                {
-                    var entryType = entry!.GetType();
-                    entries[(string)entryType.GetProperty("Key")!.GetValue(entry)!] = entryType.GetProperty("Value")!.GetValue(entry);
-                }
-                return await ResolvePropsAsync(entries, path, parentWasResolved, ct);
+                if (!PropObjectMapper.TryStringDictionary(value, out var entries)) return value;
+                return await ResolvePropsAsync(NormalizeDictionaryKeys(entries), path, parentWasResolved, ct);
             }
             if (value is IEnumerable sequence && value is not string && value is not IDictionary)
             {
@@ -230,6 +225,27 @@ internal sealed class PropsResolver
         finally { _ancestors.Remove(value); }
     }
     private static bool DescendsFrom(string path, string filter) => path == filter || path.StartsWith(filter + ".", StringComparison.Ordinal);
+    private static bool IsLiteral(Dictionary<string, object?> values, string key)
+        => values is PropObjectDictionary literal && literal.LiteralKeys.Contains(key);
+    private static Dictionary<string, object?> Set(Dictionary<string, object?> values, string key, object? value, bool literal)
+    {
+        if (literal && values is not PropObjectDictionary)
+        {
+            var converted = new PropObjectDictionary();
+            foreach (var (name, entry) in values) converted.Set(name, entry, false);
+            values = converted;
+        }
+        if (values is PropObjectDictionary mapped) mapped.Set(key, value, literal);
+        else values[key] = value;
+        return values;
+    }
+    private PropObjectDictionary NormalizeDictionaryKeys(Dictionary<string, object?> values)
+    {
+        var result = new PropObjectDictionary();
+        foreach (var (key, value) in values)
+            result.Set(IsLiteral(values, key) ? key : _jsonOptions.DictionaryKeyPolicy?.ConvertName(key) ?? key, value, true);
+        return result;
+    }
     private bool Included(string path, bool traverseParents)
         => (_only.Length == 0 || _only.Any(filter => DescendsFrom(path, filter)
             || (traverseParents && DescendsFrom(filter, path))))

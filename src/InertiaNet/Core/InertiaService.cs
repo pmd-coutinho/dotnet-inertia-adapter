@@ -15,7 +15,7 @@ internal sealed class InertiaService : IInertiaService
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     // Per-request accumulated state
-    private readonly Dictionary<string, object?> _sharedProps = [];
+    private readonly PropObjectDictionary _sharedProps = [];
     private readonly Dictionary<string, object?> _flashData = [];
     private readonly List<string> _ssrExcludedPaths = [];
     private bool _clearHistory;
@@ -30,8 +30,12 @@ internal sealed class InertiaService : IInertiaService
 
     // ── Shared props ─────────────────────────────────────────────────────────
 
-    public IInertiaService Share(string key, object? value) { _sharedProps[key] = value; return this; }
-    public IInertiaService Share(IDictionary<string, object?> data) { foreach (var kv in data) _sharedProps[kv.Key] = kv.Value; return this; }
+    public IInertiaService Share(string key, object? value) { _sharedProps.Set(key, value, false); return this; }
+    public IInertiaService Share(IDictionary<string, object?> data)
+    {
+        foreach (var (key, value) in data) _sharedProps.Set(key, value, data is PropObjectDictionary mapped && mapped.LiteralKeys.Contains(key));
+        return this;
+    }
     public IInertiaService ShareProps<TProps>(TProps props)
         => Share(props is IDictionary<string, object?> dictionary ? dictionary : ObjectToDictionary(props));
     public IInertiaService Share(IProvidesInertiaProperties provider) { _sharedProps[Guid.NewGuid().ToString()] = provider; return this; }
@@ -40,14 +44,14 @@ internal sealed class InertiaService : IInertiaService
     public OnceProp ShareOnce(string key, Func<IServiceProvider, CancellationToken, Task<object?>> callback)
     {
         var prop = new OnceProp(callback);
-        _sharedProps[key] = prop;
+        Share(key, prop);
         return prop;
     }
 
     public OnceProp ShareOnce(string key, object? value)
     {
         var prop = new OnceProp((_, _) => Task.FromResult(value));
-        _sharedProps[key] = prop;
+        Share(key, prop);
         return prop;
     }
 
@@ -93,11 +97,11 @@ internal sealed class InertiaService : IInertiaService
         var propDict = props is IDictionary<string, object?> d
             ? d
             : ObjectToDictionary(props);
-        return new InertiaResult(component, new Dictionary<string, object?>(_sharedProps), propDict, this, _options);
+        return new InertiaResult(component, PropObjectDictionary.Copy(_sharedProps), propDict, this, _options);
     }
 
     public InertiaResult Render(string component, IDictionary<string, object?> props)
-        => new(component, new Dictionary<string, object?>(_sharedProps), props, this, _options);
+        => new(component, PropObjectDictionary.Copy(_sharedProps), props, this, _options);
 
     public InertiaResult Render<TProps>(string component, TProps props)
         => Render(component, (object?)props);
