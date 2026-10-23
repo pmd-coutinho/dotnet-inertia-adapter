@@ -8,6 +8,7 @@ using InertiaNet.Pathfinder.Tests.TestHelpers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Http;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace InertiaNet.Pathfinder.Tests.Contracts;
@@ -36,6 +37,24 @@ public class EndpointManifestContractTests
         var compilation = ProjectCompilationLoader.CreateForSources([tree]);
         var routes = MinimalApiRouteDiscoverer.Discover(tree, compilation.GetSemanticModel(tree));
         EndpointManifestValidator.Validate(routes, path, new());
+        PathfinderDiagnostics.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PathCasing_UsesTheFrameworksCaseInsensitiveRouteMatching()
+    {
+        PathfinderDiagnostics.Clear();
+        using var project = new TemporaryProject();
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        await using var app = builder.Build();
+        app.MapGet("/Case", () => "native").WithName("case");
+        await app.StartAsync();
+        using var response = await app.GetTestClient().GetAsync("/case");
+        response.EnsureSuccessStatusCode();
+        var path = project.PathFor("endpoints.json");
+        await InertiaEndpointManifest.Capture(app).WriteAsync(path);
+        EndpointManifestValidator.Validate([Route("case", "/case")], path, new());
         PathfinderDiagnostics.Entries.Should().BeEmpty();
     }
 

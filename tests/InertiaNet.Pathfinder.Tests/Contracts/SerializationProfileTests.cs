@@ -5,6 +5,10 @@ using FluentAssertions;
 using InertiaNet.Pathfinder.Analysis;
 using InertiaNet.Pathfinder.Tests.TestHelpers;
 using Microsoft.CodeAnalysis.CSharp;
+using InertiaNet.Core;
+using InertiaNet.Extensions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace InertiaNet.Pathfinder.Tests.Contracts;
 
@@ -142,6 +146,55 @@ public class SerializationProfileTests
         using var project = new TemporaryProject();
         Action load = () => ContractConfiguration.Load(project.File("invalid.json", json));
         load.Should().Throw<Exception>();
+    }
+
+    [Fact]
+    public async Task DirectionalIgnoreAttributes_SeparateInputAndOutput_UsingSelectedFrameworkMetadata()
+    {
+        PathfinderDiagnostics.Clear();
+        var tree = CSharpSyntaxTree.ParseText("""
+            #nullable enable
+            using InertiaNet.Core;
+            using Microsoft.AspNetCore.Mvc;
+            using System.Text.Json.Serialization;
+            public class Transport
+            {
+                [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)] public string InputOnly { get; set; } = "input";
+                [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)] public string OutputOnly { get; set; } = "server";
+            }
+            [Route("directional")] public class DirectionalController : Controller
+            {
+                [HttpPost] public object Store([FromBody] Transport input) => input;
+                public void Page(IInertiaService inertia) { inertia.Render("Directional", new Transport()); }
+            }
+            """, path: "Directional.cs");
+        var compilation = ProjectCompilationLoader.CreateForSources([tree]);
+        var contracts = new SemanticContractDiscoverer(compilation, new()).Discover([tree], ControllerRouteDiscoverer.Discover(tree));
+        contracts.Pages.Single().Props.Select(field => field.Name).Should().Equal("outputOnly");
+        contracts.Models.Single(model => model.Usage == "input").Properties.Select(field => field.Name).Should().Equal("inputOnly");
+        using var stream = new MemoryStream();
+        var emitted = compilation.WithAssemblyName("Ignore_" + Guid.NewGuid().ToString("N")).Emit(stream);
+        emitted.Success.Should().BeTrue(string.Join('\n', emitted.Diagnostics));
+        stream.Position = 0;
+        var type = AssemblyLoadContext.Default.LoadFromStream(stream).GetType("Transport")!;
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var actual = JsonSerializer.SerializeToElement(Activator.CreateInstance(type), type, options);
+        actual.EnumerateObject().Select(property => property.Name).Should().Equal("outputOnly");
+        var services = new ServiceCollection().AddLogging();
+        services.AddInertia();
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Headers["X-Inertia"] = "true";
+        context.Response.Body = new MemoryStream();
+        await scope.ServiceProvider.GetRequiredService<IInertiaService>().Render("Directional", Activator.CreateInstance(type)).ExecuteAsync(context);
+        context.Response.Body.Position = 0;
+        using var adapterJson = await JsonDocument.ParseAsync(context.Response.Body);
+        adapterJson.RootElement.GetProperty("props").EnumerateObject().Select(property => property.Name).Should().Equal("outputOnly");
+        var input = JsonSerializer.Deserialize("""{"inputOnly":"client","outputOnly":"changed"}""", type, options)!;
+        type.GetProperty("InputOnly")!.GetValue(input).Should().Be("client");
+        type.GetProperty("OutputOnly")!.GetValue(input).Should().Be("server");
+        PathfinderDiagnostics.Entries.Should().BeEmpty();
     }
 
     [Fact]

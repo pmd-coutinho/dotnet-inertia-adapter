@@ -27,13 +27,13 @@ internal static class EndpointManifestValidator
         foreach (var route in routes)
         {
             var candidates = endpoints.Where(endpoint => route.RouteName is not null
-                ? endpoint.Name == route.RouteName : normalized[endpoint] == route.UrlTemplate).ToArray();
+                ? endpoint.Name == route.RouteName : normalized[endpoint].Equals(route.UrlTemplate, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (candidates.Length == 0)
             {
                 Report(route, $"Source endpoint '{route.RouteName ?? route.ActionName}' ({route.UrlTemplate}) is absent from the registered endpoint manifest.", "PATHFINDER400");
                 continue;
             }
-            if (!candidates.Any(endpoint => normalized[endpoint] == route.UrlTemplate && MethodsMatch(route, endpoint)
+            if (!candidates.Any(endpoint => normalized[endpoint].Equals(route.UrlTemplate, StringComparison.OrdinalIgnoreCase) && MethodsMatch(route, endpoint)
                     && HostsMatch(route, endpoint) && (route.ComponentName is null || endpoint.Component is null || route.ComponentName == endpoint.Component)
                     && DefaultsMatch(route, endpoint)))
             {
@@ -58,7 +58,7 @@ internal static class EndpointManifestValidator
 
     private static bool DefaultsMatch(RouteInfo route, Endpoint endpoint)
         => RouteTemplateParser.Parse(endpoint.Pattern).All(parameter => parameter.DefaultValue is null
-            || route.Parameters.Any(source => source.Name == parameter.Name && source.DefaultValue == parameter.DefaultValue));
+            || route.Parameters.Any(source => source.Name.Equals(parameter.Name, StringComparison.OrdinalIgnoreCase) && source.DefaultValue == parameter.DefaultValue));
 
     private static string Normalize(string pattern)
     {

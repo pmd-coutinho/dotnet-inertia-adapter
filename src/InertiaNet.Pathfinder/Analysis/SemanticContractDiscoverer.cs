@@ -475,6 +475,8 @@ internal sealed class SemanticContractDiscoverer
             var ignore = Attribute(symbol, "JsonIgnoreAttribute");
             var ignoreCondition = ignore is null ? profile.IgnoreCondition : (JsonIgnoreCondition)(NamedValue(ignore, "Condition") as int? ?? 1);
             if (usage is Output or Input && ignore is not null && ignoreCondition == JsonIgnoreCondition.Always) continue;
+            var directionalIgnore = NamedEnumValue(ignore, "Condition");
+            if (usage == Output && directionalIgnore == "WhenWriting" || usage == Input && directionalIgnore == "WhenReading") continue;
             if (usage is Query or Form && Attribute(symbol, "BindNeverAttribute") is not null) continue;
             if (usage is Query or Form)
             {
@@ -673,6 +675,12 @@ internal sealed class SemanticContractDiscoverer
         : name.StartsWith("From", StringComparison.Ordinal) || name is "ModelBinderAttribute" or "BindPropertyAttribute" ? "Microsoft.AspNetCore.Mvc"
         : "System.ComponentModel.DataAnnotations";
     private static object? NamedValue(AttributeData? attribute, string key) => attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == key).Value.Value;
+    private static string? NamedEnumValue(AttributeData? attribute, string key)
+    {
+        var value = attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == key).Value;
+        return value?.Type is INamedTypeSymbol { TypeKind: TypeKind.Enum } type
+            ? type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(field => field.HasConstantValue && Equals(field.ConstantValue, value.Value.Value))?.Name : null;
+    }
     private static bool IsStringEnumConverter(AttributeData? attribute)
         => attribute?.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol { Name: "JsonStringEnumConverter" } converter
             && converter.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization";
