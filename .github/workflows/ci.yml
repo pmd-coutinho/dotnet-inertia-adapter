@@ -54,10 +54,85 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore Pathfinder tests
-        run: dotnet restore tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj
+        run: |
+          dotnet restore src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj
+          dotnet restore tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj
 
       - name: Test Pathfinder
         run: dotnet test tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj --configuration Release --no-restore
+
+  test-pathfinder-packages:
+    name: Installed Pathfinder and build integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pack tool and build companion
+        run: |
+          dotnet pack src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj -c Release -o artifacts
+          dotnet pack src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj -c Release -o artifacts
+      - name: Install and exercise all supported frameworks
+        run: |
+          version=$(dotnet msbuild src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj -getProperty:Version)
+          node scripts/test-pathfinder-package.cjs artifacts "$version" net8.0 net9.0 net10.0
+
+  test-generated-typescript:
+    name: Generated TypeScript (Inertia ${{ matrix.inertia }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        inertia: ['3.0.2', '3.9.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tests/InertiaNet.Pathfinder.TypeScript/package-lock.json
+      - name: Install compiler and client
+        working-directory: tests/InertiaNet.Pathfinder.TypeScript
+        run: npm ci && npm install --no-save --package-lock=false @inertiajs/core@${{ matrix.inertia }}
+      - name: Generate, type-check, and execute route contracts
+        working-directory: tests/InertiaNet.Pathfinder.TypeScript
+        run: npm test
+
+  test-playground:
+    name: React and Vue browser integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: samples/Playground/ClientApp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: samples/Playground/ClientApp/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:manifest
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playground-browser-failure
+          path: samples/Playground/ClientApp/test-results
 
   test-analyzers:
     name: Test Analyzers
@@ -90,6 +165,11 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Read Shared Package Versions
         id: versions
@@ -132,6 +212,12 @@ jobs:
       - name: Install Vue Starter Frontend Dependencies
         run: cd artifacts/smoke-vue/ClientApp && npm install
 
+      - name: Type-check And Build React Starter Frontend
+        run: cd artifacts/smoke-react/ClientApp && npm run build
+
+      - name: Type-check And Build Vue Starter Frontend
+        run: cd artifacts/smoke-vue/ClientApp && npm run build
+
       - name: Restore And Build React Starter
         run: dotnet restore artifacts/smoke-react/SmokeReact.csproj --source artifacts --source https://api.nuget.org/v3/index.json && dotnet build artifacts/smoke-react/SmokeReact.csproj --no-restore
 
@@ -144,6 +230,9 @@ jobs:
     needs:
       - test
       - test-pathfinder
+      - test-pathfinder-packages
+      - test-generated-typescript
+      - test-playground
       - test-analyzers
       - test-templates
 

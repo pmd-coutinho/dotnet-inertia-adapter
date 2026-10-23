@@ -1,0 +1,8 @@
+/ClientApp/src/pathfinder/
+/ClientApp/test-results/
+/ClientApp/playwright-report/
+/ClientApp/ssr/
+/ssr/
+/wwwroot/build/
+/wwwroot/hot
+/endpoints.json

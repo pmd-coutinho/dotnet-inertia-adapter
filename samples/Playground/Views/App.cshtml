@@ -1,0 +1,18 @@
+@{
+    Layout = null;
+    var client = Context.GetRouteValue("client")?.ToString() == "vue" ? "vue" : "react";
+    var entry = client == "vue" ? "src/vue.ts" : "src/react.tsx";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <inertia-head />
+</head>
+<body>
+    <vite-react-refresh />
+    <inertia id="playground-root" />
+    <vite-input src="@entry" />
+</body>
+</html>

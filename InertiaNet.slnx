@@ -11,4 +11,7 @@
     <Project Path="tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj" />
     <Project Path="tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Playground/Playground.csproj" />
+  </Folder>
 </Solution>
