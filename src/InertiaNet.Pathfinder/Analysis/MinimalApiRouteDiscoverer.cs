@@ -8,7 +8,9 @@ static class MinimalApiRouteDiscoverer
 {
     private static readonly Dictionary<string, string[]> MapMethodToHttp = new()
     {
-        ["MapGet"] = ["get", "head"],
+        ["MapGet"] = ["get"],
+        ["MapInertia"] = ["get"],
+        ["MapMethods"] = [],
         ["MapPost"] = ["post"],
         ["MapPut"] = ["put"],
         ["MapPatch"] = ["patch"],
@@ -28,14 +30,14 @@ static class MinimalApiRouteDiscoverer
         "FromHeader", "FromHeaderAttribute",
     };
 
-    public static List<RouteInfo> Discover(SyntaxTree tree)
+    public static List<RouteInfo> Discover(SyntaxTree tree, SemanticModel? semantic = null)
     {
         var routes = new List<RouteInfo>();
         var root = tree.GetRoot();
-        var stringValues = DiscoverStringValues(root);
+        var stringValues = DiscoverStringValues(root, semantic);
 
         // Track MapGroup variable assignments: variable name → prefix
-        var groupPrefixes = DiscoverGroupPrefixes(root, stringValues);
+        var groupPrefixes = DiscoverGroupPrefixes(root, stringValues, semantic);
 
         foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
@@ -48,7 +50,7 @@ static class MinimalApiRouteDiscoverer
                 continue;
 
             var args = invocation.ArgumentList.Arguments;
-            if (args.Count < 2)
+            if (args.Count < (methodName == "MapMethods" ? 3 : 2))
                 continue;
 
             var lineSpan = invocation.GetLocation().GetLineSpan();
@@ -56,7 +58,8 @@ static class MinimalApiRouteDiscoverer
             var sourceLine = lineSpan.StartLinePosition.Line + 1;
 
             // First arg: route template
-            var routeTemplate = ResolveStringExpression(args[0].Expression, stringValues);
+            var routeTemplate = semantic?.GetConstantValue(args[0].Expression).Value as string
+                ?? ResolveStringExpression(args[0].Expression, stringValues);
             if (routeTemplate == null)
             {
                 PathfinderDiagnostics.Report(
@@ -67,7 +70,7 @@ static class MinimalApiRouteDiscoverer
             }
 
             // Resolve group prefix from the expression the method is called on
-            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues);
+            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues, semantic);
             if (memberAccess.Expression is InvocationExpressionSyntax && prefix == null)
             {
                 PathfinderDiagnostics.Report(
@@ -89,27 +92,42 @@ static class MinimalApiRouteDiscoverer
             routeTemplate = RouteTemplateParser.StripConstraints(routeTemplate);
             var templateParamNames = templateParts.Select(p => p.Name.ToLowerInvariant()).ToHashSet();
 
-            // Second arg: handler (lambda or supported same-file method group)
-            var handler = ResolveHandler(args[1].Expression, root);
-            if (handler == null)
+            string? component = null;
+            RouteParameter[] parameters;
+            string? bodyTypeName = null;
+            if (methodName == "MapInertia")
             {
-                PathfinderDiagnostics.Report(
-                    sourceFile,
-                    sourceLine,
-                    $"Skipped minimal API route '{routeTemplate}' because the handler could not be resolved to a supported lambda or same-file method group.");
-                continue;
+                component = ResolveStringExpression(args[1].Expression, stringValues, semantic);
+                parameters = RouteParameterDiscovery.Discover([], templateParts);
+            }
+            else
+            {
+                if (methodName == "MapMethods")
+                {
+                    httpMethods = ResolveHttpMethods(args[1].Expression, semantic);
+                    if (httpMethods.Length == 0)
+                    {
+                        PathfinderDiagnostics.Report(sourceFile, sourceLine, "Skipped MapMethods route because its HTTP methods could not be resolved statically.", "PATHFINDER102");
+                        continue;
+                    }
+                }
+                var handlerExpression = args[methodName == "MapMethods" ? 2 : 1].Expression;
+                var handler = ResolveSemanticHandler(handlerExpression, semantic) ?? ResolveHandler(handlerExpression, root);
+                if (handler == null)
+                {
+                    PathfinderDiagnostics.Report(sourceFile, sourceLine,
+                        $"Skipped minimal API route '{routeTemplate}' because the handler could not be resolved to a supported lambda or method group.", "PATHFINDER101");
+                    continue;
+                }
+                parameters = ExtractHandlerParameters(handler.Parameters, templateParamNames, templateParts);
+                bodyTypeName = ExtractBodyTypeName(handler.Parameters);
             }
 
-            var parameters = ExtractHandlerParameters(handler.Parameters, templateParamNames, templateParts);
-
-            // Extract [FromBody] parameter type
-            var bodyTypeName = ExtractBodyTypeName(handler.Parameters);
-
             // Check for .WithName("...") fluent call
-            var routeName = FindWithName(invocation);
+            var routeName = FindWithName(invocation, semantic);
 
             // Check for .RequireHost("...") fluent call
-            var hostValue = FindRequireHost(invocation);
+            var hostValue = FindRequireHost(invocation, semantic);
             string? domain = null;
             string? scheme = null;
 
@@ -139,13 +157,36 @@ static class MinimalApiRouteDiscoverer
                 SourceLine: sourceLine,
                 BodyTypeName: bodyTypeName,
                 Domain: domain,
-                Scheme: scheme));
+                Scheme: scheme,
+                ComponentName: component,
+                SourceSpanStart: invocation.SpanStart));
         }
 
         return routes;
     }
 
-    private static Dictionary<string, string> DiscoverGroupPrefixes(SyntaxNode root, Dictionary<string, string> stringValues)
+    private static string[] ResolveHttpMethods(ExpressionSyntax expression, SemanticModel? semantic)
+    {
+        var elements = expression switch
+        {
+            ImplicitArrayCreationExpressionSyntax array => array.Initializer.Expressions.ToArray(),
+            ArrayCreationExpressionSyntax array => array.Initializer?.Expressions.ToArray() ?? [],
+            CollectionExpressionSyntax collection => collection.Elements.OfType<ExpressionElementSyntax>().Select(element => element.Expression).ToArray(),
+            _ => [],
+        };
+        string? Method(ExpressionSyntax element)
+        {
+            if (element is LiteralExpressionSyntax literal) return literal.Token.ValueText.ToLowerInvariant();
+            if (semantic?.GetConstantValue(element).Value is string value) return value.ToLowerInvariant();
+            var symbol = semantic?.GetSymbolInfo(element).Symbol;
+            return symbol?.ContainingType?.ToDisplayString() == "Microsoft.AspNetCore.Http.HttpMethods" ? symbol.Name.ToLowerInvariant() : null;
+        }
+        if (elements.Length == 0 || elements.Any(element => Method(element) is null)) return [];
+        var methods = elements.Select(element => Method(element)!).Distinct().ToArray();
+        return methods.All(method => method is "get" or "head" or "post" or "put" or "patch" or "delete" or "options" or "trace" or "connect") ? methods : [];
+    }
+
+    private static Dictionary<string, string> DiscoverGroupPrefixes(SyntaxNode root, Dictionary<string, string> stringValues, SemanticModel? semantic)
     {
         var prefixes = new Dictionary<string, string>();
 
@@ -161,17 +202,17 @@ static class MinimalApiRouteDiscoverer
             if (args.Count < 1)
                 continue;
 
-            var groupPrefix = ResolveStringExpression(args[0].Expression, stringValues);
+            var groupPrefix = ResolveStringExpression(args[0].Expression, stringValues, semantic);
             if (groupPrefix == null)
                 continue;
 
             // Resolve parent prefix
-            var parentPrefix = ResolvePrefix(memberAccess.Expression, prefixes, stringValues);
+            var parentPrefix = ResolvePrefix(memberAccess.Expression, prefixes, stringValues, semantic);
             if (parentPrefix != null)
                 groupPrefix = parentPrefix.TrimEnd('/') + "/" + groupPrefix.TrimStart('/');
 
             // Find the variable this is assigned to
-            var variableName = IsNestedMapGroupInvocation(invocation) ? null : GetAssignedVariable(invocation);
+            var variableName = IsNestedMapGroupInvocation(invocation) ? null : GetAssignedVariable(invocation, semantic);
             if (variableName != null)
                 prefixes[variableName] = groupPrefix;
         }
@@ -179,7 +220,7 @@ static class MinimalApiRouteDiscoverer
         return prefixes;
     }
 
-    private static string? GetAssignedVariable(SyntaxNode node)
+    private static string? GetAssignedVariable(SyntaxNode node, SemanticModel? semantic)
     {
         var parent = node.Parent;
 
@@ -187,11 +228,11 @@ static class MinimalApiRouteDiscoverer
         while (parent != null)
         {
             if (parent is VariableDeclaratorSyntax declarator)
-                return declarator.Identifier.Text;
+                return GroupKey(declarator.Identifier.ValueText, semantic?.GetDeclaredSymbol(declarator));
 
             if (parent is AssignmentExpressionSyntax assignment &&
                 assignment.Left is IdentifierNameSyntax id)
-                return id.Identifier.Text;
+                return GroupKey(id.Identifier.ValueText, semantic?.GetSymbolInfo(id).Symbol);
 
             // Go up through fluent calls
             if (parent is InvocationExpressionSyntax or MemberAccessExpressionSyntax or
@@ -207,6 +248,10 @@ static class MinimalApiRouteDiscoverer
         return null;
     }
 
+    private static string GroupKey(string name, ISymbol? symbol)
+        => symbol?.Locations.FirstOrDefault(location => location.IsInSource) is { } location
+            ? name + "@" + location.SourceTree?.FilePath + ":" + location.SourceSpan.Start : name;
+
     private static bool IsNestedMapGroupInvocation(InvocationExpressionSyntax invocation)
         => invocation.Parent is MemberAccessExpressionSyntax parentMember &&
            parentMember.Name.Identifier.Text == "MapGroup" &&
@@ -215,11 +260,11 @@ static class MinimalApiRouteDiscoverer
     private static string? ResolvePrefix(
         ExpressionSyntax expression,
         Dictionary<string, string> groupPrefixes,
-        Dictionary<string, string> stringValues)
+        Dictionary<string, string> stringValues, SemanticModel? semantic = null)
     {
         if (expression is IdentifierNameSyntax identifier)
         {
-            return groupPrefixes.GetValueOrDefault(identifier.Identifier.Text)
+            return groupPrefixes.GetValueOrDefault(GroupKey(identifier.Identifier.ValueText, semantic?.GetSymbolInfo(identifier).Symbol))
                 ?? stringValues.GetValueOrDefault(identifier.Identifier.Text);
         }
 
@@ -228,8 +273,8 @@ static class MinimalApiRouteDiscoverer
             memberAccess.Name.Identifier.Text == "MapGroup" &&
             invocation.ArgumentList.Arguments.Count > 0)
         {
-            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues);
-            var segment = ResolveStringExpression(invocation.ArgumentList.Arguments[0].Expression, stringValues);
+            var prefix = ResolvePrefix(memberAccess.Expression, groupPrefixes, stringValues, semantic);
+            var segment = ResolveStringExpression(invocation.ArgumentList.Arguments[0].Expression, stringValues, semantic);
 
             if (segment == null)
                 return null;
@@ -242,7 +287,7 @@ static class MinimalApiRouteDiscoverer
         return null;
     }
 
-    private static Dictionary<string, string> DiscoverStringValues(SyntaxNode root)
+    private static Dictionary<string, string> DiscoverStringValues(SyntaxNode root, SemanticModel? semantic)
     {
         var bindings = new List<(string Key, ExpressionSyntax Expression)>();
 
@@ -283,7 +328,7 @@ static class MinimalApiRouteDiscoverer
                 if (resolved.ContainsKey(key))
                     continue;
 
-                var value = ResolveStringExpression(expression, resolved);
+                var value = ResolveStringExpression(expression, resolved, semantic);
                 if (value == null)
                     continue;
 
@@ -295,8 +340,9 @@ static class MinimalApiRouteDiscoverer
         return resolved;
     }
 
-    private static string? ResolveStringExpression(ExpressionSyntax expression, Dictionary<string, string> stringValues)
+    private static string? ResolveStringExpression(ExpressionSyntax expression, Dictionary<string, string> stringValues, SemanticModel? semantic = null)
     {
+        if (semantic?.GetConstantValue(expression).Value is string value) return value;
         return expression switch
         {
             LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.StringLiteralExpression)
@@ -365,45 +411,27 @@ static class MinimalApiRouteDiscoverer
         };
     }
 
+    private static ResolvedHandler? ResolveSemanticHandler(ExpressionSyntax handler, SemanticModel? semantic)
+    {
+        var method = semantic?.GetSymbolInfo(handler).Symbol as IMethodSymbol;
+        if (method is null && semantic is not null)
+        {
+            var candidates = semantic.GetMemberGroup(handler).OfType<IMethodSymbol>().ToArray();
+            if (candidates.Length == 1) method = candidates[0];
+        }
+        if (method is null) return null;
+        var declaration = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+        return declaration switch
+        {
+            MethodDeclarationSyntax syntax => new(syntax.ParameterList.Parameters),
+            LocalFunctionStatementSyntax syntax => new(syntax.ParameterList.Parameters),
+            _ => null,
+        };
+    }
+
     private static RouteParameter[] ExtractHandlerParameters(IEnumerable<ParameterSyntax> paramList,
         HashSet<string> templateParamNames, List<RouteTemplateParser.TemplatePart> templateParts)
-    {
-        var parameters = new List<RouteParameter>();
-
-        foreach (var param in paramList)
-        {
-            var paramName = param.Identifier.Text;
-
-            // Skip known service types
-            var typeName = param.Type?.ToString();
-            if (typeName != null && SkipParameterTypes.Contains(typeName))
-                continue;
-
-            // Skip params with excluded attributes
-            if (param.AttributeLists.SelectMany(al => al.Attributes)
-                .Any(a => SkipParameterAttributes.Contains(GetAttributeName(a))))
-                continue;
-
-            // Only include if it matches a template placeholder
-            if (!templateParamNames.Contains(paramName.ToLowerInvariant()))
-                continue;
-
-            var templatePart = templateParts.FirstOrDefault(p =>
-                p.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-
-            var clrType = templatePart?.ClrType ?? GetParameterTypeName(param) ?? "string";
-            var isOptional = templatePart?.IsOptional ?? param.Default != null;
-
-            // Prefer route template default over method param default
-            var defaultValue = templatePart?.DefaultValue;
-            if (defaultValue == null && param.Default != null)
-                defaultValue = param.Default.Value.ToString();
-
-            parameters.Add(new RouteParameter(paramName, clrType, isOptional, defaultValue));
-        }
-
-        return parameters.ToArray();
-    }
+        => RouteParameterDiscovery.Discover(paramList, templateParts);
 
     private static string GetAttributeName(AttributeSyntax attr)
     {
@@ -433,68 +461,26 @@ static class MinimalApiRouteDiscoverer
         };
     }
 
-    private static string? FindWithName(InvocationExpressionSyntax invocation)
+    private static string? FindWithName(InvocationExpressionSyntax invocation, SemanticModel? semantic)
+        => FindFluentString(invocation, "WithName", semantic);
+
+    private static string? FindRequireHost(InvocationExpressionSyntax invocation, SemanticModel? semantic)
+        => FindFluentString(invocation, "RequireHost", semantic);
+
+    private static string? FindFluentString(InvocationExpressionSyntax invocation, string method, SemanticModel? semantic)
     {
-        // Look for .WithName("...") in the fluent chain above
-        var parent = invocation.Parent;
-
-        while (parent != null)
+        for (var parent = invocation.Parent; parent is MemberAccessExpressionSyntax or InvocationExpressionSyntax or ParenthesizedExpressionSyntax; parent = parent.Parent)
         {
-            if (parent is InvocationExpressionSyntax parentInvocation &&
-                parentInvocation.Expression is MemberAccessExpressionSyntax parentMember &&
-                parentMember.Name.Identifier.Text == "WithName" &&
-                parentInvocation.ArgumentList.Arguments.Count > 0 &&
-                parentInvocation.ArgumentList.Arguments[0].Expression is LiteralExpressionSyntax nameLiteral)
+            if (parent is not InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax member } candidate
+                || member.Name.Identifier.ValueText != method || candidate.ArgumentList.Arguments.Count == 0) continue;
+            var value = ResolveStringExpression(candidate.ArgumentList.Arguments[0].Expression, [], semantic);
+            if (value is null)
             {
-                return nameLiteral.Token.ValueText;
+                var line = candidate.GetLocation().GetLineSpan();
+                PathfinderDiagnostics.Report(line.Path, line.StartLinePosition.Line + 1, $"Cannot resolve {method} metadata statically.", "PATHFINDER100");
             }
-
-            // Also check if the invocation itself is the expression being called .WithName on
-            if (parent is MemberAccessExpressionSyntax ma &&
-                ma.Expression == invocation &&
-                ma.Name.Identifier.Text == "WithName" &&
-                ma.Parent is InvocationExpressionSyntax withNameCall &&
-                withNameCall.ArgumentList.Arguments.Count > 0 &&
-                withNameCall.ArgumentList.Arguments[0].Expression is LiteralExpressionSyntax lit)
-            {
-                return lit.Token.ValueText;
-            }
-
-            parent = parent.Parent;
+            return value;
         }
-
-        return null;
-    }
-
-    private static string? FindRequireHost(InvocationExpressionSyntax invocation)
-    {
-        // Look for .RequireHost("...") in the fluent chain above
-        var parent = invocation.Parent;
-
-        while (parent != null)
-        {
-            if (parent is InvocationExpressionSyntax parentInvocation &&
-                parentInvocation.Expression is MemberAccessExpressionSyntax parentMember &&
-                parentMember.Name.Identifier.Text == "RequireHost" &&
-                parentInvocation.ArgumentList.Arguments.Count > 0 &&
-                parentInvocation.ArgumentList.Arguments[0].Expression is LiteralExpressionSyntax hostLiteral)
-            {
-                return hostLiteral.Token.ValueText;
-            }
-
-            if (parent is MemberAccessExpressionSyntax ma &&
-                ma.Expression == invocation &&
-                ma.Name.Identifier.Text == "RequireHost" &&
-                ma.Parent is InvocationExpressionSyntax requireHostCall &&
-                requireHostCall.ArgumentList.Arguments.Count > 0 &&
-                requireHostCall.ArgumentList.Arguments[0].Expression is LiteralExpressionSyntax lit)
-            {
-                return lit.Token.ValueText;
-            }
-
-            parent = parent.Parent;
-        }
-
         return null;
     }
 

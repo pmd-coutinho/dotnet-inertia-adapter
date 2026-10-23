@@ -1,17 +1,65 @@
 <Project>
-  <Target Name="PathfinderGenerate"
-          Condition="'$(PathfinderEnabled)' == 'true'"
-          BeforeTargets="$(PathfinderBeforeTargets)"
-          Inputs="@(Compile);$(MSBuildProjectFullPath);$(MSBuildThisFileFullPath)"
-          Outputs="$(PathfinderOutputPath)/index.ts">
+  <!-- The fingerprint detects removed inputs and option changes. The stamp permits
+       unchanged generated modules to retain their timestamps without rerunning forever. -->
+  <Target Name="PathfinderCollectInputs" Condition="'$(PathfinderEnabled)' == 'true'">
+    <ConvertToAbsolutePath Paths="$(PathfinderProjectPath)">
+      <Output TaskParameter="AbsolutePaths" PropertyName="_PathfinderProjectFullPath" />
+    </ConvertToAbsolutePath>
     <PropertyGroup>
-      <_PathfinderCommand>$(PathfinderToolCommand) -p &quot;$(PathfinderProjectPath)&quot; -o &quot;$(PathfinderOutputPath)&quot; --actions $(PathfinderGenerateActions) --routes $(PathfinderGenerateRoutes) --forms $(PathfinderGenerateForms)</_PathfinderCommand>
-      <_PathfinderCommand Condition="'$(PathfinderSkipPatterns)' != ''">$(_PathfinderCommand) --skip &quot;$(PathfinderSkipPatterns)&quot;</_PathfinderCommand>
-      <_PathfinderCommand Condition="'$(PathfinderClean)' == 'false'">$(_PathfinderCommand) --no-clean</_PathfinderCommand>
-      <_PathfinderCommand Condition="'$(PathfinderQuiet)' == 'true'">$(_PathfinderCommand) --quiet</_PathfinderCommand>
+      <_PathfinderFingerprint>$(IntermediateOutputPath)pathfinder.inputs</_PathfinderFingerprint>
+      <_PathfinderInputRoot>$([System.IO.Path]::GetDirectoryName('$(_PathfinderProjectFullPath)'))</_PathfinderInputRoot>
+      <_PathfinderInputRoot Condition="$([System.IO.Directory]::Exists('$(_PathfinderProjectFullPath)'))">$(_PathfinderProjectFullPath)</_PathfinderInputRoot>
     </PropertyGroup>
-
-    <Message Importance="High" Condition="'$(PathfinderQuiet)' != 'true'" Text="Running Pathfinder: $(_PathfinderCommand)" />
-    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(_PathfinderCommand)" />
+    <ItemGroup>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_PROJECT"><Value>$(PathfinderProjectPath)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_OUTPUT"><Value>$(PathfinderOutputPath)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_FRAMEWORK"><Value>$(PathfinderFramework)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_CONFIGURATION"><Value>$(Configuration)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_CONTRACTS"><Value>$(PathfinderContractFile)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_ENDPOINT_MANIFEST"><Value>$(PathfinderEndpointManifest)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_ACTIONS"><Value>$(PathfinderGenerateActions)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_ROUTES"><Value>$(PathfinderGenerateRoutes)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_FORMS"><Value>$(PathfinderGenerateForms)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_MODELS"><Value>$(PathfinderGenerateModels)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_ENUMS"><Value>$(PathfinderGenerateEnums)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_PROPS"><Value>$(PathfinderGenerateProps)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_WOLVERINE"><Value>$(PathfinderDiscoverWolverine)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_CLEAN"><Value>$(PathfinderClean)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_QUIET"><Value>$(PathfinderQuiet)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_STRICT"><Value>$(PathfinderStrict)</Value></_PathfinderEnvironment>
+      <_PathfinderEnvironment Include="PATHFINDER_BUILD_SKIP"><Value>$(PathfinderSkipPatterns)</Value></_PathfinderEnvironment>
+      <_PathfinderFingerprintLines Include="@(Compile->'%(FullPath)');@(_PathfinderEnvironment->'%(Identity)=%(Value)')" />
+      <_PathfinderFingerprintLines Include="tool=$(PathfinderToolCommand)" />
+      <_PathfinderFingerprintLines Include="framework=$(TargetFramework);frameworks=$(TargetFrameworks);language=$(LangVersion);defines=$(DefineConstants)" />
+    </ItemGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_PathfinderFingerprint)" Lines="@(_PathfinderFingerprintLines)"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ReadLinesFromFile File="$(PathfinderOutputPath)/.pathfinder-files" Condition="Exists('$(PathfinderOutputPath)/.pathfinder-files')">
+      <Output TaskParameter="Lines" ItemName="_PathfinderExpectedFiles" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(PathfinderOutputPath)/.pathfinder-inputs" Condition="Exists('$(PathfinderOutputPath)/.pathfinder-inputs')">
+      <Output TaskParameter="Lines" ItemName="_PathfinderExtraInputs" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_PathfinderExpectedFiles Include=".pathfinder-manifest.json;.pathfinder-files;.pathfinder-inputs;index.ts" />
+      <_PathfinderExpectedPaths Include="@(_PathfinderExpectedFiles->'$(PathfinderOutputPath)/%(Identity)')" />
+      <_PathfinderMissingFiles Include="@(_PathfinderExpectedPaths)" Condition="!Exists('%(_PathfinderExpectedPaths.Identity)')" />
+      <_PathfinderInputs Include="@(Compile);$(MSBuildAllProjects);$(MSBuildProjectFullPath);$(MSBuildThisFileFullPath);$(_PathfinderFingerprint);@(_PathfinderMissingFiles)" />
+      <_PathfinderInputs Include="$(PathfinderContractFile)" Condition="'$(PathfinderContractFile)' != ''" />
+      <_PathfinderInputs Include="$(PathfinderEndpointManifest)" Condition="'$(PathfinderEndpointManifest)' != ''" />
+      <_PathfinderInputs Include="@(_PathfinderExtraInputs->'$(_PathfinderInputRoot)/%(Identity)')" />
+    </ItemGroup>
+  </Target>
+  <Target Name="PathfinderGenerate"
+          Condition="'$(PathfinderEnabled)' == 'true' and '$(IsCrossTargetingBuild)' != 'true'"
+          BeforeTargets="$(PathfinderBeforeTargets)"
+          DependsOnTargets="PathfinderCollectInputs"
+          Inputs="@(_PathfinderInputs)"
+          Outputs="$(PathfinderOutputPath)/.pathfinder.stamp">
+    <Message Importance="High" Condition="'$(PathfinderQuiet)' != 'true'" Text="Running Pathfinder" />
+    <!-- Pass data through the process environment; paths and filters never enter shell syntax. -->
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(PathfinderToolCommand) --msbuild"
+          EnvironmentVariables="@(_PathfinderEnvironment->'%(Identity)=%(Value)')" />
   </Target>
 </Project>

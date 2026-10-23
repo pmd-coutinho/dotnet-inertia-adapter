@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["generated/**/*.ts", "contract-tests.ts"],
+  "exclude": ["generated/without-models", "generated/without-enums", "generated/routes-only", "generated/bigint"]
+}

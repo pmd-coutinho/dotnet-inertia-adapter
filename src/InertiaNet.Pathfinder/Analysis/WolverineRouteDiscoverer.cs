@@ -89,7 +89,8 @@ static class WolverineRouteDiscoverer
                 routeName,
                 sourceFile,
                 sourceLine,
-                bodyTypeName));
+                bodyTypeName,
+                SourceSpanStart: method.SpanStart));
         }
 
         return routes;
@@ -165,50 +166,7 @@ static class WolverineRouteDiscoverer
 
     private static RouteParameter[] ExtractParameters(MethodDeclarationSyntax method,
         HashSet<string> templateParamNames, List<RouteTemplateParser.TemplatePart> templateParts)
-    {
-        var parameters = new List<RouteParameter>();
-
-        foreach (var param in method.ParameterList.Parameters)
-        {
-            var paramName = param.Identifier.Text;
-            var typeName = GetParameterTypeName(param);
-            var matchesTemplate = templateParamNames.Contains(paramName.ToLowerInvariant());
-
-            // Skip known framework/service types
-            if (typeName != null && SkipParameterTypes.Contains(typeName))
-                continue;
-
-            // Skip interfaces (likely injected services) — starts with I + uppercase letter
-            if (typeName != null && typeName.Length >= 2 &&
-                typeName[0] == 'I' && char.IsUpper(typeName[1]))
-                continue;
-
-            // Skip [NotBody] params that don't match a template placeholder
-            var hasNotBody = param.AttributeLists.SelectMany(al => al.Attributes)
-                .Any(a => GetAttributeName(a) is "NotBody" or "NotBodyAttribute");
-            if (hasNotBody && !matchesTemplate)
-                continue;
-
-            // Only include if it matches a template placeholder
-            if (!matchesTemplate)
-                continue;
-
-            var templatePart = templateParts.FirstOrDefault(p =>
-                p.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-
-            var clrType = templatePart?.ClrType ?? typeName ?? "string";
-            var isOptional = templatePart?.IsOptional ?? param.Default != null;
-
-            // Prefer route template default over method param default
-            var defaultValue = templatePart?.DefaultValue;
-            if (defaultValue == null && param.Default != null)
-                defaultValue = param.Default.Value.ToString();
-
-            parameters.Add(new RouteParameter(paramName, clrType, isOptional, defaultValue));
-        }
-
-        return parameters.ToArray();
-    }
+        => RouteParameterDiscovery.Discover(method.ParameterList.Parameters, templateParts);
 
     private static string? GetParameterTypeName(ParameterSyntax param)
     {

@@ -1,156 +1,132 @@
-using Microsoft.CodeAnalysis.CSharp;
 using InertiaNet.Pathfinder;
 using InertiaNet.Pathfinder.Analysis;
 using InertiaNet.Pathfinder.Generation;
-
-var config = PathfinderConfig.FromArgs(args);
-var projectPath = Path.GetFullPath(config.ProjectPath);
-
-if (!Directory.Exists(projectPath))
-{
-    Console.Error.WriteLine($"Error: Project directory not found: {projectPath}");
-    return 1;
-}
-
-if (!config.Quiet)
-    Console.WriteLine($"Pathfinder: Scanning {projectPath}...");
-
-// Find all .cs files
-var csFiles = Directory.GetFiles(projectPath, "*.cs", SearchOption.AllDirectories)
-    .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
-                !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-    .OrderBy(f => f, StringComparer.Ordinal)
-    .ToArray();
-
-if (!config.Quiet)
-    Console.WriteLine($"Pathfinder: Found {csFiles.Length} source files.");
-
-// Parse all files with Roslyn
-var allRoutes = new List<RouteInfo>();
-var allEnums = new List<EnumInfo>();
-var trees = new List<Microsoft.CodeAnalysis.SyntaxTree>();
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 PathfinderDiagnostics.Clear();
-
-foreach (var file in csFiles)
+try
 {
-    var source = File.ReadAllText(file);
-    var tree = CSharpSyntaxTree.ParseText(source, path: file);
-    trees.Add(tree);
-
-    var controllerRoutes = ControllerRouteDiscoverer.Discover(tree);
-    var minimalApiRoutes = MinimalApiRouteDiscoverer.Discover(tree);
-    var wolverineRoutes = WolverineRouteDiscoverer.Discover(tree);
-    var enums = EnumDiscoverer.Discover(tree);
-
-    allRoutes.AddRange(controllerRoutes);
-    allRoutes.AddRange(minimalApiRoutes);
-    allRoutes.AddRange(wolverineRoutes);
-    allEnums.AddRange(enums);
+    var config = PathfinderConfig.FromArgs(args);
+    if (config.Help)
+    {
+        Console.WriteLine("""
+            pathfinder [options]
+              -p, --project <directory|csproj>   Project to evaluate, or a source directory
+              -o, --output <directory>          Generated output (default ./pathfinder)
+              --framework <tfm>                 Target framework (defaults to first declared)
+              -c, --configuration <name>        Project configuration (default Debug)
+              --contracts <json>               Explicit JSON output/input contract profiles
+              --endpoint-manifest <json>       Compare source routes with an app-exported snapshot
+              --actions|--routes|--forms <bool> Route output switches (default true)
+              --models|--enums|--props <bool>    Experimental type output switches (default true)
+              --wolverine <bool>                Experimental endpoint discovery (default true)
+              --skip <patterns>                 Semicolon-separated controller wildcard patterns
+              --strict, --fail-on-warning       Fail without writing when discovery has warnings
+              --check                          Report stale generated files without modifying them
+              --adopt                          Adopt matching paths in a legacy generated directory
+              --no-clean, --clean false         Retain previously owned files no longer generated
+              -q, --quiet                       Suppress progress; diagnostics still go to stderr
+              --diagnostics-json                Write structured discovery diagnostics to stderr
+              -w, --watch                       Regenerate after source/project changes
+              --debounce <1..60000>              Watch debounce in milliseconds (default 300)
+              --version                         Print tool version
+              -h, --help                        Show this help
+            Exit codes: 0 success/current; 1 stale output or strict diagnostics; 2 invalid input/failure.
+            """);
+        return 0;
+    }
+    if (config.Version)
+    {
+        Console.WriteLine(typeof(PathfinderConfig).Assembly.GetName().Version);
+        return 0;
+    }
+    using var cancellation = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Console.CancelKeyPress += cancel;
+    try
+    {
+        var (exitCode, sources) = await RunGenerationAsync(config, cancellation.Token);
+        if (!config.Watch) return exitCode;
+        await PathfinderWatchRunner.RunAsync(sources.Root, config,
+            () => { sources = RunGenerationAsync(config, cancellation.Token).GetAwaiter().GetResult().Sources; }, cancellation.Token,
+            () => sources.WatchDirectories);
+        return 0;
+    }
+    finally { Console.CancelKeyPress -= cancel; }
+}
+catch (OperationCanceledException) { return 0; }
+catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException or System.Xml.XmlException)
+{
+    PathfinderDiagnostics.Report("pathfinder", 1, ex.Message, "PATHFINDER900", "error");
+    PathfinderDiagnostics.Write(Console.Error, args.Contains("--diagnostics-json", StringComparer.Ordinal));
+    return 2;
 }
 
-// Apply skip patterns
-if (config.SkipPatterns.Length > 0)
+static async Task<(int ExitCode, ProjectSources Sources)> RunGenerationAsync(PathfinderConfig config, CancellationToken ct)
 {
-    allRoutes = allRoutes
-        .Where(r => !config.SkipPatterns.Any(pattern => MatchesPattern(r.ControllerFullName, pattern)))
-        .ToList();
-}
-
-// Register discovered enums in the type mapper
-foreach (var enumInfo in allEnums)
-    TypeMapper.RegisterEnum(enumInfo.ShortName, enumInfo.ShortName);
-
-// Discover page props from Inertia Render() calls
-var treesArray = trees.ToArray();
-var allPageProps = PropsDiscoverer.Discover(treesArray);
-
-// Discover models referenced by page props
-var allModels = ModelDiscoverer.Discover(treesArray, allPageProps, allRoutes);
-
-if (!config.Quiet)
-{
-    Console.WriteLine($"Pathfinder: Discovered {allRoutes.Count} routes, {allEnums.Count} enums, {allPageProps.Count} page types, {allModels.Count} models.");
-
-    foreach (var diagnostic in PathfinderDiagnostics.Current.OrderBy(message => message, StringComparer.Ordinal))
-        Console.WriteLine($"Pathfinder: Warning: {diagnostic}");
-}
-
-// Generate TypeScript
-TypeScriptGenerator.Generate(allRoutes, allEnums, allPageProps, allModels, config);
-
-if (!config.Quiet)
-    Console.WriteLine($"Pathfinder: Output written to {Path.GetFullPath(config.OutputPath)}");
-
-// Watch mode
-if (config.Watch)
-{
-    var cts = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-    await PathfinderWatchRunner.RunAsync(projectPath, config, () => RunGeneration(projectPath, config), cts.Token);
-}
-
-return 0;
-
-static void RunGeneration(string projectPath, PathfinderConfig config)
-{
-    var csFiles = Directory.GetFiles(projectPath, "*.cs", SearchOption.AllDirectories)
-        .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
-                    !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-        .OrderBy(f => f, StringComparer.Ordinal)
-        .ToArray();
-
-    var allRoutes = new List<RouteInfo>();
-    var allEnums = new List<EnumInfo>();
-    var trees = new List<Microsoft.CodeAnalysis.SyntaxTree>();
-
-    TypeMapper.ClearEnums();
     PathfinderDiagnostics.Clear();
-
-    foreach (var file in csFiles)
+    TypeMapper.ClearEnums();
+    var sources = await ProjectSourceLoader.LoadAsync(config, ct);
+    var contractPath = config.ContractFile is null ? null : Path.GetFullPath(config.ContractFile);
+    var manifestPath = config.EndpointManifest is null ? null : Path.GetFullPath(config.EndpointManifest);
+    var profiles = contractPath is null ? new ContractConfiguration() : ContractConfiguration.Load(contractPath);
+    var trees = new List<SyntaxTree>();
+    var routes = new List<RouteInfo>();
+    if (!config.Quiet) Console.WriteLine($"Pathfinder: Reading {sources.Files.Length} sources from {sources.ProjectFile ?? sources.Root}.");
+    foreach (var file in sources.Files)
     {
-        var source = File.ReadAllText(file);
-        var tree = CSharpSyntaxTree.ParseText(source, path: file);
+        ct.ThrowIfCancellationRequested();
+        if (!File.Exists(file))
+        {
+            PathfinderDiagnostics.Report(file, 1, "Evaluated Compile item does not exist. Generate it before running Pathfinder.", "PATHFINDER110");
+            continue;
+        }
+        var tree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(file, ct), sources.ParseOptions,
+            path: Path.GetRelativePath(sources.Root, file).Replace('\\', '/'), cancellationToken: ct);
         trees.Add(tree);
-
-        allRoutes.AddRange(ControllerRouteDiscoverer.Discover(tree));
-        allRoutes.AddRange(MinimalApiRouteDiscoverer.Discover(tree));
-        allRoutes.AddRange(WolverineRouteDiscoverer.Discover(tree));
-        allEnums.AddRange(EnumDiscoverer.Discover(tree));
+        foreach (var error in tree.GetDiagnostics(ct).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+        {
+            var span = error.Location.GetLineSpan();
+            PathfinderDiagnostics.Report(span.Path, span.StartLinePosition.Line + 1, error.GetMessage(), "PATHFINDER200", "error");
+        }
     }
-
-    if (config.SkipPatterns.Length > 0)
+    if (sources.GlobalUsings.Length > 0)
+        trees.Add(CSharpSyntaxTree.ParseText(string.Join('\n', sources.GlobalUsings), sources.ParseOptions, path: "Pathfinder.GlobalUsings.g.cs"));
+    var project = await ProjectCompilationLoader.LoadAsync(sources, trees.ToArray(), config, ct);
+    var inputs = project.Inputs.Concat(new[] { contractPath, manifestPath }.OfType<string>()).Distinct(StringComparer.Ordinal).ToArray();
+    sources = sources with { AdditionalInputs = inputs };
+    config.InputFiles = inputs;
+    foreach (var tree in trees)
     {
-        allRoutes = allRoutes
-            .Where(r => !config.SkipPatterns.Any(pattern => MatchesPattern(r.ControllerFullName, pattern)))
-            .ToList();
+        routes.AddRange(ControllerRouteDiscoverer.Discover(tree));
+        routes.AddRange(MinimalApiRouteDiscoverer.Discover(tree, project.Compilation.GetSemanticModel(tree)));
+        if (config.DiscoverWolverine) routes.AddRange(WolverineRouteDiscoverer.Discover(tree));
     }
-
-    foreach (var enumInfo in allEnums)
-        TypeMapper.RegisterEnum(enumInfo.ShortName, enumInfo.ShortName);
-
-    var treesArray = trees.ToArray();
-    var allPageProps = PropsDiscoverer.Discover(treesArray);
-    var allModels = ModelDiscoverer.Discover(treesArray, allPageProps, allRoutes);
-
-    TypeScriptGenerator.Generate(allRoutes, allEnums, allPageProps, allModels, config);
-
-    if (!config.Quiet)
+    routes = routes.Where(route => !config.SkipPatterns.Any(pattern => MatchesPattern(route.ControllerFullName, pattern))).ToList();
+    var contracts = new SemanticContractDiscoverer(project.Compilation, config, profiles.Output, profiles.Input).Discover(trees, routes);
+    routes = contracts.Routes;
+    if (manifestPath is not null) EndpointManifestValidator.Validate(routes, manifestPath, config);
+    var enums = contracts.Enums;
+    var pages = contracts.Pages;
+    var models = contracts.Models;
+    if (PathfinderDiagnostics.Entries.Any(entry => entry.Severity == "error") || (config.Strict && PathfinderDiagnostics.Entries.Count > 0))
     {
-        foreach (var diagnostic in PathfinderDiagnostics.Current.OrderBy(message => message, StringComparer.Ordinal))
-            Console.WriteLine($"Pathfinder: Warning: {diagnostic}");
+        PathfinderDiagnostics.Write(Console.Error, config.JsonDiagnostics);
+        return (1, sources);
     }
+    var changed = TypeScriptGenerator.Generate(routes, enums, pages, models, config, contracts.SharedProps);
+    if (config.Check && changed)
+        PathfinderDiagnostics.Report(config.OutputPath, 1, "Generated output is stale. Run Pathfinder without --check to update it.", "PATHFINDER300", "error");
+    PathfinderDiagnostics.Write(Console.Error, config.JsonDiagnostics);
+    if (!config.Quiet) Console.WriteLine(config.Check
+        ? changed ? "Pathfinder: Generated output is stale." : "Pathfinder: Generated output is current."
+        : $"Pathfinder: {routes.Count} routes, {pages.Count} pages, {models.Count} models; output {Path.GetFullPath(config.OutputPath)}.");
+    return (config.Check && changed ? 1 : 0, sources);
 }
 
 static bool MatchesPattern(string value, string pattern)
-{
-    // Simple wildcard matching: *Health* matches "HealthController", "MyHealthCheck", etc.
-    if (pattern.StartsWith('*') && pattern.EndsWith('*'))
-        return value.Contains(pattern[1..^1], StringComparison.OrdinalIgnoreCase);
-    if (pattern.StartsWith('*'))
-        return value.EndsWith(pattern[1..], StringComparison.OrdinalIgnoreCase);
-    if (pattern.EndsWith('*'))
-        return value.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase);
-    return value.Equals(pattern, StringComparison.OrdinalIgnoreCase);
-}
+    => System.Text.RegularExpressions.Regex.IsMatch(value,
+        "^" + System.Text.RegularExpressions.Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));

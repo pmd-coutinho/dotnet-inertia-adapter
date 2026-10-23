@@ -10,7 +10,7 @@ static class EnumFileWriter
         if (enums.Count == 0)
             return;
 
-        var enumsDir = Path.Combine(outputDir, "enums");
+        var enumsDir = GeneratedOutput.PathUnder(outputDir, "enums");
         Directory.CreateDirectory(enumsDir);
 
         foreach (var enumInfo in enums
@@ -25,19 +25,22 @@ static class EnumFileWriter
             foreach (var member in enumInfo.Members)
             {
                 var value = member.Value ?? member.Name;
+                var key = member.Name == "__proto__" ? "[\"__proto__\"]" : NameUtils.PropertyKey(member.Name);
                 // If the value is numeric, don't quote it; otherwise quote it
-                if (int.TryParse(value, out _))
-                    sb.AppendLine($"    {member.Name}: {value},");
+                if (member.BigInt)
+                    sb.AppendLine($"    {key}: {value}n,");
+                else if (!enumInfo.StringValues && System.Numerics.BigInteger.TryParse(value, out _))
+                    sb.AppendLine($"    {key}: {value},");
                 else
-                    sb.AppendLine($"    {member.Name}: \"{value}\",");
+                    sb.AppendLine($"    {key}: {System.Text.Json.JsonSerializer.Serialize(value)},");
             }
             sb.AppendLine("} as const");
             sb.AppendLine();
 
             // Generate union type from the const object values
-            sb.AppendLine($"export type {name} = (typeof {name})[keyof typeof {name}]");
+            sb.AppendLine($"export type {name} = (typeof {name})[keyof typeof {name}]" + (enumInfo.WireType is null ? "" : " | " + enumInfo.WireType));
 
-            var filePath = Path.Combine(enumsDir, $"{name}.ts");
+            var filePath = GeneratedOutput.PathUnder(enumsDir, $"{name}.ts");
             File.WriteAllText(filePath, sb.ToString());
         }
     }

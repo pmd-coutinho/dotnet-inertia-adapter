@@ -41,7 +41,7 @@ static class PostHandlers
         routes.Should().HaveCount(4);
 
         var show = routes.Single(route => route.RouteName == "Posts.Show");
-        show.HttpMethods.Should().Equal("get", "head");
+        show.HttpMethods.Should().Equal("get");
         show.UrlTemplate.Should().Be("/api/posts/{id}/{slug?}");
         show.Domain.Should().Be("tenant.example.com");
         show.Scheme.Should().Be("https");

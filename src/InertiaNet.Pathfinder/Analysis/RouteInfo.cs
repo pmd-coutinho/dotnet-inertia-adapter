@@ -12,4 +12,9 @@ record RouteInfo(
     int? SourceLine = null,
     string? BodyTypeName = null,
     string? Domain = null,
-    string? Scheme = null);
+    string? Scheme = null,
+    string? ComponentName = null,
+    string? BodyTypeScriptType = null,
+    string? QueryTypeScriptType = null,
+    string? FormTypeScriptType = null,
+    int? SourceSpanStart = null);

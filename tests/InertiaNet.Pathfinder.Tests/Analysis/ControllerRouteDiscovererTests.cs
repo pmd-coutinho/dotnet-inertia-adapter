@@ -35,7 +35,7 @@ public record UpdatePostRequest(string Title);
         routes.Should().HaveCount(2);
 
         var show = routes.Single(route => route.ActionName == "Show");
-        show.HttpMethods.Should().Equal("get", "head");
+        show.HttpMethods.Should().Equal("get");
         show.UrlTemplate.Should().Be("/admin/posts/{id}/{slug?}");
         show.RouteName.Should().Be("Posts.Show");
         show.Domain.Should().Be("admin.example.com");

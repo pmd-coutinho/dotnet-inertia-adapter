@@ -1,11 +1,20 @@
 <Project>
   <PropertyGroup>
     <PathfinderEnabled Condition="'$(PathfinderEnabled)' == ''">false</PathfinderEnabled>
-    <PathfinderProjectPath Condition="'$(PathfinderProjectPath)' == ''">$(MSBuildProjectDirectory)</PathfinderProjectPath>
+    <PathfinderProjectPath Condition="'$(PathfinderProjectPath)' == ''">$(MSBuildProjectFullPath)</PathfinderProjectPath>
     <PathfinderOutputPath Condition="'$(PathfinderOutputPath)' == ''">$(MSBuildProjectDirectory)/ClientApp/pathfinder</PathfinderOutputPath>
     <PathfinderGenerateActions Condition="'$(PathfinderGenerateActions)' == ''">true</PathfinderGenerateActions>
     <PathfinderGenerateRoutes Condition="'$(PathfinderGenerateRoutes)' == ''">true</PathfinderGenerateRoutes>
     <PathfinderGenerateForms Condition="'$(PathfinderGenerateForms)' == ''">true</PathfinderGenerateForms>
+    <PathfinderGenerateModels Condition="'$(PathfinderGenerateModels)' == ''">true</PathfinderGenerateModels>
+    <PathfinderGenerateEnums Condition="'$(PathfinderGenerateEnums)' == ''">true</PathfinderGenerateEnums>
+    <PathfinderGenerateProps Condition="'$(PathfinderGenerateProps)' == ''">true</PathfinderGenerateProps>
+    <PathfinderDiscoverWolverine Condition="'$(PathfinderDiscoverWolverine)' == ''">true</PathfinderDiscoverWolverine>
+    <!-- Use one explicit framework for shared output, including multi-target projects. -->
+    <PathfinderFramework Condition="'$(PathfinderFramework)' == ''"></PathfinderFramework>
+    <PathfinderContractFile Condition="'$(PathfinderContractFile)' == ''"></PathfinderContractFile>
+    <PathfinderEndpointManifest Condition="'$(PathfinderEndpointManifest)' == ''"></PathfinderEndpointManifest>
+    <PathfinderStrict Condition="'$(PathfinderStrict)' == ''">false</PathfinderStrict>
     <PathfinderSkipPatterns Condition="'$(PathfinderSkipPatterns)' == ''"></PathfinderSkipPatterns>
     <PathfinderClean Condition="'$(PathfinderClean)' == ''">true</PathfinderClean>
     <PathfinderQuiet Condition="'$(PathfinderQuiet)' == ''">true</PathfinderQuiet>

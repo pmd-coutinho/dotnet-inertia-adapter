@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -6,50 +7,43 @@ namespace InertiaNet.Pathfinder.Analysis;
 
 static class EnumDiscoverer
 {
-    public static List<EnumInfo> Discover(SyntaxTree tree)
+    private static readonly Lazy<MetadataReference[]> References = new(() =>
+        ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? typeof(object).Assembly.Location)
+            .Split(Path.PathSeparator).Distinct(StringComparer.Ordinal)
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path)).ToArray());
+
+    public static List<EnumInfo> Discover(SyntaxTree tree) => Discover([tree]);
+
+    public static List<EnumInfo> Discover(IEnumerable<SyntaxTree> trees)
     {
+        var compilation = CSharpCompilation.Create("Pathfinder.EnumContracts", trees, References.Value,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         var enums = new List<EnumInfo>();
-        var root = tree.GetRoot();
-
-        foreach (var enumDecl in root.DescendantNodes().OfType<EnumDeclarationSyntax>())
+        foreach (var tree in compilation.SyntaxTrees)
         {
-            var fullName = GetFullName(enumDecl);
-            var shortName = enumDecl.Identifier.Text;
-
-            var members = new List<EnumMember>();
-            foreach (var member in enumDecl.Members)
+            var semantic = compilation.GetSemanticModel(tree);
+            foreach (var declaration in tree.GetRoot().DescendantNodes().OfType<EnumDeclarationSyntax>())
             {
-                var name = member.Identifier.Text;
-                string? value = null;
-
-                if (member.EqualsValue?.Value is LiteralExpressionSyntax literal)
-                    value = literal.Token.ValueText;
-
-                members.Add(new EnumMember(name, value));
+                if (semantic.GetDeclaredSymbol(declaration) is not INamedTypeSymbol symbol) continue;
+                var stringValues = symbol.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "JsonConverterAttribute"
+                    && attribute.ConstructorArguments.Any(argument => argument.Value?.ToString()?.Contains("JsonStringEnumConverter", StringComparison.Ordinal) == true));
+                var members = new List<EnumMember>();
+                foreach (var member in declaration.Members)
+                {
+                    if (semantic.GetDeclaredSymbol(member) is not IFieldSymbol { HasConstantValue: true } field)
+                    {
+                        var span = member.GetLocation().GetLineSpan();
+                        PathfinderDiagnostics.Report(span.Path, span.StartLinePosition.Line + 1,
+                            $"Cannot resolve enum constant '{symbol.Name}.{member.Identifier.ValueText}'.", "PATHFINDER104");
+                        continue;
+                    }
+                    var stringName = field.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.Name == "JsonStringEnumMemberNameAttribute")
+                        ?.ConstructorArguments.FirstOrDefault().Value as string ?? field.Name;
+                    members.Add(new EnumMember(field.Name, stringValues ? stringName : Convert.ToString(field.ConstantValue, CultureInfo.InvariantCulture)));
+                }
+                enums.Add(new EnumInfo(symbol.ToDisplayString(), symbol.Name, members, stringValues));
             }
-
-            enums.Add(new EnumInfo(fullName, shortName, members));
         }
-
         return enums;
-    }
-
-    private static string GetFullName(EnumDeclarationSyntax enumDecl)
-    {
-        var parts = new List<string> { enumDecl.Identifier.Text };
-        var parent = enumDecl.Parent;
-
-        while (parent != null)
-        {
-            if (parent is NamespaceDeclarationSyntax ns)
-                parts.Insert(0, ns.Name.ToString());
-            else if (parent is FileScopedNamespaceDeclarationSyntax fileNs)
-                parts.Insert(0, fileNs.Name.ToString());
-            else if (parent is ClassDeclarationSyntax classDecl)
-                parts.Insert(0, classDecl.Identifier.Text);
-            parent = parent.Parent;
-        }
-
-        return string.Join(".", parts);
     }
 }

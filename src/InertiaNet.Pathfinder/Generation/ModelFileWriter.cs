@@ -10,7 +10,7 @@ static class ModelFileWriter
         if (models.Count == 0)
             return;
 
-        var modelsDir = Path.Combine(outputDir, "models");
+        var modelsDir = GeneratedOutput.PathUnder(outputDir, "models");
         Directory.CreateDirectory(modelsDir);
 
         foreach (var model in models
@@ -28,20 +28,30 @@ static class ModelFileWriter
             foreach (var reference in referencedModels)
                 sb.AppendLine($"import type {{ {reference} }} from './{reference}'");
 
-            if (referencedModels.Count > 0)
+            var enumReferences = model.Properties.SelectMany(property => TypeReferenceCollector.Collect(property.TypeScriptType))
+                .Where(TypeMapper.IsEnum).Distinct().OrderBy(name => name, StringComparer.Ordinal).ToArray();
+            foreach (var reference in enumReferences)
+                sb.AppendLine($"import type {{ {reference} }} from '../enums/{reference}'");
+
+            if (referencedModels.Count > 0 || enumReferences.Length > 0)
                 sb.AppendLine();
 
-            sb.AppendLine($"export interface {model.ShortName} {{");
+            sb.AppendLine(model.Usage == "output" ? $"export interface {model.ShortName} {{" : $"export type {model.ShortName} = {{");
 
             foreach (var prop in model.Properties)
             {
-                var optional = prop.IsNullable ? "?" : "";
-                sb.AppendLine($"    {prop.Name}{optional}: {prop.TypeScriptType}");
+                var optional = (prop.IsOptional ?? prop.IsNullable) ? "?" : "";
+                sb.AppendLine($"    {NameUtils.PropertyKey(prop.Name)}{optional}: {prop.TypeScriptType}");
             }
+            if (model.HasExtensionData) sb.AppendLine("    [key: string]: unknown");
 
             sb.AppendLine("}");
+            var validation = model.Properties.Where(property => property.Validation is not null)
+                .ToDictionary(property => property.Name, property => property.Validation);
+            if (validation.Count > 0)
+                sb.AppendLine($"\nexport const {model.ShortName}Validation = {System.Text.Json.JsonSerializer.Serialize(validation).Replace("\"__proto__\":", "[\"__proto__\"]:", StringComparison.Ordinal)} as const");
 
-            var filePath = Path.Combine(modelsDir, $"{model.ShortName}.ts");
+            var filePath = GeneratedOutput.PathUnder(modelsDir, $"{model.ShortName}.ts");
             File.WriteAllText(filePath, sb.ToString());
         }
     }

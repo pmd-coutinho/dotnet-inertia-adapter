@@ -1,89 +1,44 @@
-using System.Text.RegularExpressions;
+using System.Globalization;
+using Microsoft.AspNetCore.Routing.Patterns;
 
 namespace InertiaNet.Pathfinder.Analysis;
 
-static partial class RouteTemplateParser
+static class RouteTemplateParser
 {
-    [GeneratedRegex(@"\{(\w+)(\?)?(?:=([^}:]*?))?(?::([^}]*))?\}")]
-    private static partial Regex ParameterRegex();
-
-    private static readonly Dictionary<string, string> ConstraintTypeMap = new()
+    private static readonly Dictionary<string, string> ConstraintTypeMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["int"] = "int",
-        ["long"] = "long",
-        ["float"] = "float",
-        ["double"] = "double",
-        ["decimal"] = "decimal",
-        ["bool"] = "bool",
-        ["guid"] = "Guid",
-        ["alpha"] = "string",
-        ["minlength"] = "string",
-        ["maxlength"] = "string",
-        ["length"] = "string",
-        ["min"] = "int",
-        ["max"] = "int",
-        ["range"] = "int",
+        ["int"] = "int", ["long"] = "long", ["float"] = "float", ["double"] = "double",
+        ["decimal"] = "decimal", ["bool"] = "bool", ["guid"] = "Guid", ["datetime"] = "DateTime",
+        ["alpha"] = "string", ["minlength"] = "string", ["maxlength"] = "string", ["length"] = "string",
     };
 
-    public record TemplatePart(string Name, string ClrType, bool IsOptional, string? DefaultValue = null);
+    public record TemplatePart(string Name, string? ClrType, bool IsOptional, string? DefaultValue = null, int CatchAll = 0);
 
-    /// <summary>
-    /// Strips route constraints from a URL template:
-    /// "{id:int}" → "{id}", "{slug?}" stays "{slug?}", "{id:int:min(1)}" → "{id}"
-    /// </summary>
     public static string StripConstraints(string template)
     {
-        return ParameterRegex().Replace(template, match =>
+        var pattern = RoutePatternFactory.Parse(template);
+        var path = "/" + string.Join('/', pattern.PathSegments.Select(segment => string.Concat(segment.Parts.Select(part => part switch
         {
-            var name = match.Groups[1].Value;
-            var hasOptionalMarker = match.Groups[2].Success;
-            var hasDefault = match.Groups[3].Success && match.Groups[3].Value.Length > 0;
-            var isOptional = hasOptionalMarker || hasDefault;
-            return isOptional ? $"{{{name}?}}" : $"{{{name}}}";
-        });
+            RoutePatternParameterPart parameter => Placeholder(parameter.Name,
+                parameter.IsOptional || parameter.Default is not null || parameter.IsCatchAll,
+                parameter.IsCatchAll ? parameter.EncodeSlashes ? 1 : 2 : 0),
+            RoutePatternLiteralPart literal => literal.Content.Replace("{", "%7B").Replace("}", "%7D"),
+            RoutePatternSeparatorPart separator => separator.Content,
+            _ => throw new NotSupportedException($"Unsupported route part in '{template}'."),
+        }))));
+        return template.EndsWith('/') && path != "/" ? path + "/" : path;
     }
 
     public static List<TemplatePart> Parse(string template)
-    {
-        var parts = new List<TemplatePart>();
-        var matches = ParameterRegex().Matches(template);
+        => RoutePatternFactory.Parse(template).Parameters.Select(parameter => new TemplatePart(
+            parameter.Name,
+            parameter.ParameterPolicies.Select(policy => policy.Content?.Split('(')[0])
+                .Where(name => name is not null && ConstraintTypeMap.ContainsKey(name))
+                .Select(name => ConstraintTypeMap[name!]).FirstOrDefault(),
+            parameter.IsOptional || parameter.Default is not null || parameter.IsCatchAll,
+            Convert.ToString(parameter.Default, CultureInfo.InvariantCulture) is { Length: > 0 } value ? value : null,
+            parameter.IsCatchAll ? parameter.EncodeSlashes ? 1 : 2 : 0)).ToList();
 
-        foreach (Match match in matches)
-        {
-            var name = match.Groups[1].Value;
-            var hasOptionalMarker = match.Groups[2].Success;
-            var defaultValue = match.Groups[3].Success && match.Groups[3].Value.Length > 0
-                ? match.Groups[3].Value
-                : null;
-            var constraint = match.Groups[4].Success ? match.Groups[4].Value : null;
-            var isOptional = hasOptionalMarker || defaultValue != null;
-
-            var clrType = "string";
-
-            if (constraint != null)
-            {
-                // Strip regex constraints entirely
-                if (constraint.StartsWith("regex("))
-                {
-                    clrType = "string";
-                }
-                else
-                {
-                    // Handle compound constraints like "int:min(1)"
-                    var firstConstraint = constraint.Split(':')[0];
-                    // Strip parameters like "min(1)" → "min"
-                    var parenIndex = firstConstraint.IndexOf('(');
-                    if (parenIndex >= 0)
-                        firstConstraint = firstConstraint[..parenIndex];
-
-                    if (ConstraintTypeMap.TryGetValue(firstConstraint, out var mappedType))
-                        clrType = mappedType;
-                }
-            }
-
-            parts.Add(new TemplatePart(name, clrType, isOptional, defaultValue));
-        }
-
-        return parts;
-    }
+    public static string Placeholder(string name, bool optional, int catchAll = 0)
+        => "{" + new string('*', catchAll) + name + (optional && catchAll == 0 ? "?" : "") + "}";
 }

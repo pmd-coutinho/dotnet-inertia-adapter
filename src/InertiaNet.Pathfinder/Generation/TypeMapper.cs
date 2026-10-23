@@ -14,7 +14,8 @@ static class TypeMapper
         "DateTime", "DateTimeOffset", "DateOnly", "TimeOnly", "TimeSpan", "Uri",
     };
 
-    private static readonly Dictionary<string, string> KnownEnums = new();
+    private static readonly AsyncLocal<Dictionary<string, string>?> EnumState = new();
+    private static Dictionary<string, string> KnownEnums => EnumState.Value ??= new(StringComparer.Ordinal);
 
     public static void RegisterEnum(string typeName, string tsType)
     {
@@ -23,8 +24,10 @@ static class TypeMapper
 
     public static void ClearEnums()
     {
-        KnownEnums.Clear();
+        EnumState.Value = new(StringComparer.Ordinal);
     }
+
+    public static bool IsEnum(string name) => name is not ("number" or "string") && KnownEnums.Values.Contains(name);
 
     public static string ToTypeScript(string clrType)
     {

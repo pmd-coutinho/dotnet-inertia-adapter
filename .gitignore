@@ -56,6 +56,8 @@ Thumbs.db
 wwwroot/build/
 wwwroot/hot
 node_modules/
+tests/InertiaNet.Pathfinder.TypeScript/generated/
+tests/InertiaNet.Pathfinder.TypeScript/dist/
 
 # Environment / secrets
 .env

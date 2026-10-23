@@ -5,7 +5,7 @@ internal static class TypeReferenceCollector
     private static readonly HashSet<string> BuiltInTsTypes =
     [
         "string", "number", "boolean", "unknown", "null", "undefined", "any", "void", "never", "object",
-        "Record",
+        "Record", "File", "Blob", "Date", "bigint",
     ];
 
     public static HashSet<string> Collect(string tsType)
@@ -23,6 +23,22 @@ internal static class TypeReferenceCollector
         }
     }
 
+    public static string RemoveNull(string tsType)
+        => string.Join(" | ", SplitTopLevel(tsType, '|').Select(part => part.Trim()).Where(part => part != "null"));
+
+    public static bool HasNull(string tsType) => SplitTopLevel(tsType, '|').Any(part => part.Trim() == "null");
+
+    public static string Replace(string tsType, IReadOnlyDictionary<string, string> replacements)
+        => System.Text.RegularExpressions.Regex.Replace(tsType,
+            "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|[\\p{L}_$][\\p{L}\\p{N}_$]*", match =>
+            {
+                if (match.Value.StartsWith('\"') || match.Value.StartsWith('\'')) return match.Value;
+                // Object keys are labels, not type references.
+                var remaining = tsType.AsSpan(match.Index + match.Length).TrimStart();
+                if (remaining.StartsWith(":" ) || remaining.StartsWith("?:")) return match.Value;
+                return replacements.TryGetValue(match.Value, out var replacement) ? replacement : match.Value;
+            });
+
     private static void CollectSingle(string tsType, HashSet<string> references)
     {
         if (string.IsNullOrWhiteSpace(tsType))
@@ -30,6 +46,13 @@ internal static class TypeReferenceCollector
 
         while (tsType.EndsWith("[]", StringComparison.Ordinal))
             tsType = tsType[..^2].Trim();
+
+        if (tsType.StartsWith('(') && tsType.EndsWith(')'))
+        {
+            CollectInto(tsType[1..^1], references);
+            return;
+        }
+        if (tsType.StartsWith('\"') || tsType.StartsWith('\'')) return;
 
         if (BuiltInTsTypes.Contains(tsType))
             return;
@@ -73,10 +96,13 @@ internal static class TypeReferenceCollector
 
         var start = 0;
         var depth = 0;
+        char quote = '\0';
 
         for (var index = 0; index < value.Length; index++)
         {
             var current = value[index];
+            if (quote != '\0') { if (current == '\\') index++; else if (current == quote) quote = '\0'; continue; }
+            if (current is '\"' or '\'') { quote = current; continue; }
             switch (current)
             {
                 case '<':
@@ -107,9 +133,13 @@ internal static class TypeReferenceCollector
     private static int FindTopLevel(string value, char target)
     {
         var depth = 0;
+        char quote = '\0';
 
         for (var index = 0; index < value.Length; index++)
         {
+            if (quote != '\0') { if (value[index] == '\\') index++; else if (value[index] == quote) quote = '\0'; continue; }
+            if (value[index] is '\"' or '\'') { quote = value[index]; continue; }
+            if (value[index] == target && depth == 0) return index;
             switch (value[index])
             {
                 case '<':
@@ -123,10 +153,6 @@ internal static class TypeReferenceCollector
                 case ']':
                 case ')':
                     depth--;
-                    break;
-                default:
-                    if (value[index] == target && depth == 0)
-                        return index;
                     break;
             }
         }

@@ -44,7 +44,7 @@ static class ExternalHandlers { }
 
         routes.Should().BeEmpty();
         PathfinderDiagnostics.Current.Should().ContainSingle(message =>
-            message.Contains("could not be resolved to a supported lambda or same-file method group", StringComparison.Ordinal));
+            message.Contains("could not be resolved to a supported lambda or method group", StringComparison.Ordinal));
     }
 
     [Fact]

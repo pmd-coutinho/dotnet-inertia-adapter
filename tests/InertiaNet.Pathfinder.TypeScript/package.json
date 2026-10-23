@@ -1,0 +1,15 @@
+{
+  "name": "inertianet-pathfinder-contract-tests",
+  "private": true,
+  "scripts": {
+    "generate": "node generate.cjs",
+    "typecheck": "node typecheck.cjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run generate && npm run typecheck && npm run build && node --test runtime.test.cjs protocol.test.cjs"
+  },
+  "devDependencies": {
+    "@inertiajs/core": "3.9.1",
+    "axios": "1.20.0",
+    "typescript": "6.0.2"
+  }
+}

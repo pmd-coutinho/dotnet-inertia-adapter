@@ -54,8 +54,8 @@ public class PathfinderGenerationTests
 
             var content = File.ReadAllText(Path.Combine(tempDirectory.FullName, "actions", "posts.ts"));
 
-            content.Should().Contain("validateParameters(\"update\", update.definition.url, [\"id\"], args as Record<string, unknown>)");
-            content.Should().Contain("action: update.url(args, options), method: \"post\", data: { _method: \"put\" },");
+            content.Should().Contain("buildUrl(\"update\", update.definition.url, parameters,");
+            content.Should().Contain("action: update.url(args, options), method: \"post\", data: { _method: \"PUT\" },");
         }
         finally
         {
@@ -92,7 +92,7 @@ public class PathfinderGenerationTests
 
             var content = File.ReadAllText(Path.Combine(tempDirectory.FullName, "actions", "posts.ts"));
 
-            content.Should().Contain("validateParameters(\"show\", show.definition.url, [\"id\"], args as Record<string, unknown>, [\"slug\"])");
+            content.Should().Contain("buildUrl(\"show\", show.definition.url, parameters,");
         }
         finally
         {
@@ -123,8 +123,8 @@ public class PathfinderGenerationTests
 
             var content = File.ReadAllText(Path.Combine(tempDirectory.FullName, "routes", "Posts", "index.ts"));
 
-            content.Should().Contain("validateParameters(\"Posts.Destroy\", destroy.definition.url, [\"id\"], args as Record<string, unknown>)");
-            content.Should().Contain("action: destroy.url(args, options), method: \"post\", data: { _method: \"delete\" },");
+            content.Should().Contain("buildUrl(\"Posts.Destroy\", destroy.definition.url, parameters,");
+            content.Should().Contain("action: destroy.url(args, options), method: \"post\", data: { _method: \"DELETE\" },");
         }
         finally
         {
@@ -196,7 +196,7 @@ public class PathfinderGenerationTests
 
             var content = File.ReadAllText(Path.Combine(actionsDir, "index.ts"));
             content.Should().Contain("export { default as classMethod } from './class'");
-            content.Should().Contain("export * as switchMethod from './switch'");
+            content.Should().Contain("export * as switchMethod from './switch/index'");
         }
         finally
         {

@@ -25,8 +25,12 @@ static class ControllerRouteDiscoverer
 
     private static readonly Dictionary<string, string[]> AttributeToMethods = new()
     {
-        ["HttpGet"] = ["get", "head"],
-        ["HttpGetAttribute"] = ["get", "head"],
+        ["HttpGet"] = ["get"],
+        ["HttpGetAttribute"] = ["get"],
+        ["HttpHead"] = ["head"],
+        ["HttpHeadAttribute"] = ["head"],
+        ["HttpOptions"] = ["options"],
+        ["HttpOptionsAttribute"] = ["options"],
         ["HttpPost"] = ["post"],
         ["HttpPostAttribute"] = ["post"],
         ["HttpPut"] = ["put"],
@@ -69,7 +73,7 @@ static class ControllerRouteDiscoverer
                     var methodRoute = GetAttributeArgument(method.AttributeLists, "Route", "RouteAttribute");
                     if (methodRoute != null)
                     {
-                        httpAttrs.Add(("get", ["get", "head"], methodRoute));
+                        httpAttrs.Add(("get", ["get"], methodRoute));
                     }
                     else
                     {
@@ -143,7 +147,8 @@ static class ControllerRouteDiscoverer
                         sourceLine,
                         bodyTypeName,
                         domain,
-                        scheme));
+                        scheme,
+                        SourceSpanStart: method.SpanStart));
                 }
             }
         }
@@ -276,8 +281,8 @@ static class ControllerRouteDiscoverer
     {
         string template;
 
-        if (!string.IsNullOrEmpty(methodTemplate) && methodTemplate.StartsWith('/'))
-            template = methodTemplate; // Absolute path overrides class route
+        if (!string.IsNullOrEmpty(methodTemplate) && (methodTemplate.StartsWith('/') || methodTemplate.StartsWith("~/", StringComparison.Ordinal)))
+            template = methodTemplate.StartsWith("~/", StringComparison.Ordinal) ? methodTemplate[1..] : methodTemplate; // Absolute path overrides class route
         else if (classRoute != null && !string.IsNullOrEmpty(methodTemplate))
             template = classRoute.TrimEnd('/') + "/" + methodTemplate.TrimStart('/');
         else if (classRoute != null)
@@ -297,43 +302,7 @@ static class ControllerRouteDiscoverer
 
     private static RouteParameter[] ExtractParameters(MethodDeclarationSyntax method,
         HashSet<string> templateParamNames, List<RouteTemplateParser.TemplatePart> templateParts)
-    {
-        var parameters = new List<RouteParameter>();
-
-        foreach (var param in method.ParameterList.Parameters)
-        {
-            if (param.Identifier.Text == null) continue;
-
-            // Skip params with excluded attributes
-            if (param.AttributeLists.SelectMany(al => al.Attributes)
-                .Any(a => SkipParameterAttributes.Contains(GetAttributeName(a))))
-                continue;
-
-            var paramName = param.Identifier.Text;
-            var hasFromRoute = param.AttributeLists.SelectMany(al => al.Attributes)
-                .Any(a => GetAttributeName(a) is "FromRoute" or "FromRouteAttribute");
-
-            // Include if [FromRoute] or matches a template placeholder
-            if (!hasFromRoute && !templateParamNames.Contains(paramName.ToLowerInvariant()))
-                continue;
-
-            // Try to get type from template constraint first, then from parameter type
-            var templatePart = templateParts.FirstOrDefault(p =>
-                p.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-
-            var clrType = templatePart?.ClrType ?? GetParameterTypeName(param) ?? "string";
-            var isOptional = templatePart?.IsOptional ?? param.Default != null;
-
-            // Prefer route template default over method param default
-            var defaultValue = templatePart?.DefaultValue;
-            if (defaultValue == null && param.Default != null)
-                defaultValue = param.Default.Value.ToString();
-
-            parameters.Add(new RouteParameter(paramName, clrType, isOptional, defaultValue));
-        }
-
-        return parameters.ToArray();
-    }
+        => RouteParameterDiscovery.Discover(method.ParameterList.Parameters, templateParts);
 
     private static string? GetParameterTypeName(ParameterSyntax param)
     {
