@@ -1,4 +1,6 @@
 using InertiaNet.Core;
+using InertiaNet.Vite;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Options;
 using System.Text.Encodings.Web;
@@ -25,11 +27,19 @@ namespace InertiaNet.TagHelpers;
 public sealed class ViteInputTagHelper : TagHelper
 {
     private readonly IOptions<ViteOptions> _options;
+    private readonly IMemoryCache? _cache;
 
     /// <summary>The Vite entry-point path as declared in <c>vite.config</c>, e.g. <c>src/main.tsx</c>.</summary>
     public string Src { get; set; } = string.Empty;
 
-    public ViteInputTagHelper(IOptions<ViteOptions> options) => _options = options;
+    public ViteInputTagHelper(IOptions<ViteOptions> options) : this(options, null) { }
+
+    /// <summary>Creates a Vite tag helper using the application's shared manifest cache.</summary>
+    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache)
+    {
+        _options = options;
+        _cache = cache;
+    }
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
@@ -48,42 +58,43 @@ public sealed class ViteInputTagHelper : TagHelper
         }
 
         var manifestPath = BuildPath(opts, opts.ManifestFilename);
-        if (!File.Exists(manifestPath))
-            throw new InvalidOperationException(
-                $"Vite manifest not found at '{manifestPath}'. Run `npm run build` first.");
-
-        var manifestJson = File.ReadAllText(manifestPath);
-        using var doc = JsonDocument.Parse(manifestJson);
-
-        if (!doc.RootElement.TryGetProperty(Src, out var entry))
+        var manifest = ViteManifest.Read(manifestPath, opts.CacheManifest ? _cache : null);
+        if (!manifest.TryGetProperty(Src, out var entry))
             throw new InvalidOperationException(
                 $"Entry '{Src}' not found in Vite manifest. Make sure it is listed under `build.rollupOptions.input`.");
 
         var file = entry.GetProperty("file").GetString()!;
-
-        // If the entry itself is a CSS file, emit a <link> only
-        if (IsCss(file))
+        var styles = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal) { Src };
+        var preloads = new HashSet<string>(StringComparer.Ordinal);
+        void Append(string html)
         {
-            output.Content.AppendHtml(MakeLinkTag(AssetUrl(opts, file)));
-            return;
+            if (output.Content.IsModified) output.Content.AppendHtml("\n    ");
+            output.Content.AppendHtml(html);
         }
-
-        // JS entry — emit a <script type="module"> …
-        output.Content.AppendHtml(MakeScriptTag(AssetUrl(opts, file)));
-
-        // … plus any associated CSS chunks
-        if (entry.TryGetProperty("css", out var cssChunks))
+        void Style(string name) { if (styles.Add(name)) Append(MakeLinkTag(AssetUrl(opts, name))); }
+        void Dependencies(JsonElement chunk)
         {
-            foreach (var chunk in cssChunks.EnumerateArray())
+            if (chunk.TryGetProperty("css", out var css))
+                foreach (var name in css.EnumerateArray()) Style(name.GetString()!);
+            if (!chunk.TryGetProperty("imports", out var imports)) return;
+            foreach (var imported in imports.EnumerateArray())
             {
-                var cssFile = chunk.GetString();
-                if (cssFile is not null)
-                {
-                    output.Content.AppendHtml("\n    ");
-                    output.Content.AppendHtml(MakeLinkTag(AssetUrl(opts, cssFile)));
-                }
+                var key = imported.GetString()!;
+                if (!visited.Add(key)) continue;
+                if (!manifest.TryGetProperty(key, out var dependency))
+                    throw new InvalidOperationException($"Imported entry '{key}' not found in Vite manifest.");
+                var dependencyFile = dependency.GetProperty("file").GetString()!;
+                if (IsCss(dependencyFile)) Style(dependencyFile);
+                else preloads.Add(dependencyFile);
+                Dependencies(dependency);
             }
         }
+        if (IsCss(file)) Style(file);
+        else Append(MakeScriptTag(AssetUrl(opts, file)));
+        Dependencies(entry);
+        foreach (var dependency in preloads)
+            Append($"<link rel=\"modulepreload\" href=\"{HtmlEncoder.Default.Encode(AssetUrl(opts, dependency))}\" />");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

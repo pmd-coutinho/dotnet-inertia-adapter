@@ -52,4 +52,7 @@ public static class HeaderNames
 
     /// <summary>Response header confirming precognition was processed.</summary>
     public const string PrecognitionSuccess = "Precognition-Success";
+
+    /// <summary>Comma-separated field paths to validate in a Precognition request.</summary>
+    public const string PrecognitionValidateOnly = "Precognition-Validate-Only";
 }

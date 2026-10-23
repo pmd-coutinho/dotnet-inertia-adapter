@@ -20,4 +20,7 @@ public enum SsrErrorType
 
     /// <summary>An unknown or unclassified error occurred.</summary>
     Unknown,
+
+    /// <summary>The SSR request exceeded its configured timeout.</summary>
+    Timeout,
 }

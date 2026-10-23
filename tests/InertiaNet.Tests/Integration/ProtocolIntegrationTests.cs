@@ -286,6 +286,7 @@ public class ProtocolIntegrationTests
     {
         var request = new HttpRequestMessage(method, uri);
         request.Headers.Add(HeaderNames.Inertia, "true");
+        request.Headers.Add(HeaderNames.Version, "server-version");
         configure?.Invoke(request);
         return request;
     }

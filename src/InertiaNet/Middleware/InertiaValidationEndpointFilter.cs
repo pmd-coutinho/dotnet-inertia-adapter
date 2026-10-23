@@ -48,6 +48,8 @@ public sealed class InertiaValidationEndpointFilter : IEndpointFilter
 
                 if (context.HttpContext.Items.TryGetValue(ErrorBagKey, out var bagObj) && bagObj is string bag)
                     tempData[SessionKeys.ErrorBag] = bag;
+                else if (context.HttpContext.Request.GetErrorBag() is { } requestBag)
+                    tempData[SessionKeys.ErrorBag] = requestBag;
 
                 tempData.Save();
             }

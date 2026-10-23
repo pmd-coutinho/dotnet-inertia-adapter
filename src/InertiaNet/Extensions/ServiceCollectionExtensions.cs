@@ -41,6 +41,12 @@ public static class ServiceCollectionExtensions
         // Options
         var optionsBuilder = services.AddOptions<InertiaOptions>();
         if (configure is not null) optionsBuilder.Configure(configure);
+        optionsBuilder.Validate(options => options.Ssr.Timeout == Timeout.InfiniteTimeSpan
+            || (options.Ssr.Timeout > TimeSpan.Zero && options.Ssr.Timeout.TotalMilliseconds <= uint.MaxValue - 1),
+            "Ssr.Timeout must be positive and no greater than 4294967294 milliseconds, or Timeout.InfiniteTimeSpan.");
+        optionsBuilder.Validate(options => options.PropDiagnostics.MaxEntries is > 0 and <= 10000
+            && options.PropDiagnostics.SlowPropThreshold >= TimeSpan.Zero,
+            "PropDiagnostics requires MaxEntries between 1 and 10000 and a nonnegative SlowPropThreshold.");
 
         // HttpContextAccessor (idempotent)
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -53,8 +59,7 @@ public static class ServiceCollectionExtensions
         // itself via its own factory — registering it as a service causes "unable to resolve
         // RequestDelegate" errors because the DI container cannot provide RequestDelegate.
 
-        // SSR gateway (only registered when SSR URL is configured via AddSsr<>())
-        // — registered separately via AddInertiaWithSsr()
+        // The optional SSR gateway is registered separately by AddInertiaWithSsr().
 
         // Tag helpers require IHttpContextAccessor (already registered above)
         // They are resolved by Razor automatically when AddRazorPages/AddControllersWithViews is called
@@ -62,7 +67,8 @@ public static class ServiceCollectionExtensions
         // Global MVC filters
         services.Configure<MvcOptions>(mvcOptions =>
         {
-            mvcOptions.Filters.Add<InertiaPrecognitionFilter>(order: -100);
+            // Run before ApiController's automatic invalid-model filter (-2000).
+            mvcOptions.Filters.Add<InertiaPrecognitionFilter>(order: -3000);
             mvcOptions.Filters.Add<InertiaValidationFilter>();
         });
 
@@ -100,6 +106,7 @@ public static class ServiceCollectionExtensions
         // ViteReactRefreshTagHelper can receive it via constructor injection.
         var optionsBuilder = services.AddOptions<ViteOptions>();
         if (configure is not null) optionsBuilder.Configure(configure);
+        services.AddMemoryCache();
 
         return services;
     }
@@ -119,7 +126,8 @@ public static class ServiceCollectionExtensions
         });
 
         // Register HttpClient for the SSR gateway
-        services.AddHttpClient<ISsrGateway, HttpSsrGateway>();
+        services.AddHttpClient(InertiaSsr.HttpClientName);
+        services.TryAddTransient<ISsrGateway, HttpSsrGateway>();
 
         return services;
     }

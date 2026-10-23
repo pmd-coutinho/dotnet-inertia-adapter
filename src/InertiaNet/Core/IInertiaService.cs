@@ -19,6 +19,9 @@ public interface IInertiaService
     /// <summary>Share multiple props at once.</summary>
     IInertiaService Share(IDictionary<string, object?> data);
 
+    /// <summary>Shares a typed props object using the configured JSON names and metadata, retaining lazy values.</summary>
+    IInertiaService ShareProps<TProps>(TProps props);
+
     /// <summary>Share all props provided by an <see cref="IProvidesInertiaProperties"/> object.</summary>
     IInertiaService Share(IProvidesInertiaProperties provider);
 
@@ -85,6 +88,12 @@ public interface IInertiaService
 
     /// <summary>Renders the given Inertia component with an explicit props dictionary.</summary>
     InertiaResult Render(string component, IDictionary<string, object?> props);
+
+    /// <summary>Renders a typed props contract using a named component.</summary>
+    InertiaResult Render<TProps>(string component, TProps props);
+
+    /// <summary>Renders a component with its declared props contract.</summary>
+    InertiaResult Render<TProps>(InertiaComponent<TProps> component, TProps props);
 
     // ── Navigation ───────────────────────────────────────────────────────────
 

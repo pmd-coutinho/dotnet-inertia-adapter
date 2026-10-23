@@ -32,6 +32,8 @@ internal sealed class InertiaService : IInertiaService
 
     public IInertiaService Share(string key, object? value) { _sharedProps[key] = value; return this; }
     public IInertiaService Share(IDictionary<string, object?> data) { foreach (var kv in data) _sharedProps[kv.Key] = kv.Value; return this; }
+    public IInertiaService ShareProps<TProps>(TProps props)
+        => Share(props is IDictionary<string, object?> dictionary ? dictionary : ObjectToDictionary(props));
     public IInertiaService Share(IProvidesInertiaProperties provider) { _sharedProps[Guid.NewGuid().ToString()] = provider; return this; }
     public IReadOnlyDictionary<string, object?> GetSharedProps() => _sharedProps;
 
@@ -97,6 +99,12 @@ internal sealed class InertiaService : IInertiaService
     public InertiaResult Render(string component, IDictionary<string, object?> props)
         => new(component, new Dictionary<string, object?>(_sharedProps), props, this, _options);
 
+    public InertiaResult Render<TProps>(string component, TProps props)
+        => Render(component, (object?)props);
+
+    public InertiaResult Render<TProps>(InertiaComponent<TProps> component, TProps props)
+        => Render(component.Name, (object?)props);
+
     // ── Navigation ────────────────────────────────────────────────────────────
 
     public IResult Location(string url)
@@ -145,14 +153,8 @@ internal sealed class InertiaService : IInertiaService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static Dictionary<string, object?> ObjectToDictionary(object? obj)
-    {
-        if (obj is null) return [];
-        var result = new Dictionary<string, object?>();
-        foreach (var prop in obj.GetType().GetProperties())
-            result[JsonNamingPolicy.CamelCase.ConvertName(prop.Name)] = prop.GetValue(obj);
-        return result;
-    }
+    private Dictionary<string, object?> ObjectToDictionary(object? obj)
+        => PropObjectMapper.ToDictionary(obj, InertiaJsonOptions.GetOptions(_options.Value));
 }
 
 /// <summary>

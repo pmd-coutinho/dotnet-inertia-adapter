@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
+using InertiaNet.Vite;
 using System.Text.Json;
 
 namespace InertiaNet.Core;
@@ -75,7 +77,8 @@ public sealed class InertiaResult : IActionResult, IResult
         {
             // 0. Validate component exists (if configured)
             if (options.Pages.EnsurePagesExist)
-                ValidateComponentExists(_component, options.Pages);
+                ValidateComponentExists(_component, options.Pages,
+                    services.GetService<IOptions<ViteOptions>>()?.Value.CacheManifest == false ? null : services.GetService<IMemoryCache>());
 
             // 1. Run PropsResolver
             var resolver = new PropsResolver(httpContext, _component, services);
@@ -83,10 +86,6 @@ public sealed class InertiaResult : IActionResult, IResult
                 new Dictionary<string, object?>(_sharedProps),
                 new Dictionary<string, object?>(_pageProps),
                 ct);
-
-            // Back-fill scroll metadata
-            await resolver.CollectScrollMetadataAsync(
-                new Dictionary<string, object?>(_pageProps), ct);
 
             // 1b. Event hook: OnAfterResolveProps
             var handlers = services.GetServices<IInertiaEventHandler>();
@@ -112,7 +111,7 @@ public sealed class InertiaResult : IActionResult, IResult
             var isInertiaRequest = httpContext.Request.Headers.ContainsKey(HeaderNames.Inertia);
 
             // Always set Vary: X-Inertia (append, don't overwrite)
-            httpContext.Response.Headers.Append("Vary", HeaderNames.Inertia);
+            InertiaResponseHeaders.AppendVary(httpContext.Response, HeaderNames.Inertia);
 
             // Prefetch cache headers
             var isPrefetch = httpContext.Request.Headers.TryGetValue(HeaderNames.Purpose, out var purpose)
@@ -143,7 +142,8 @@ public sealed class InertiaResult : IActionResult, IResult
                     ct);
             }
         }
-        catch (Exception ex) when (options.HandleExceptionsUsing is not null)
+        catch (Exception ex) when (options.HandleExceptionsUsing is not null
+            && !(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             if (httpContext.Items.ContainsKey(InertiaContextKeys.ExceptionHandlerActiveKey))
                 throw;
@@ -201,6 +201,7 @@ public sealed class InertiaResult : IActionResult, IResult
             DeepMergeProps = metadata.DeepMergeProps,
             MatchPropsOn   = metadata.MatchPropsOn,
             DeferredProps  = metadata.DeferredProps,
+            RescuedProps   = metadata.RescuedProps,
             ScrollProps    = metadata.ScrollProps,
             OnceProps      = metadata.OnceProps,
             Flash          = flashData.Count > 0 ? (IReadOnlyDictionary<string, object?>)flashData : null,
@@ -297,19 +298,18 @@ public sealed class InertiaResult : IActionResult, IResult
         await viewResult.ExecuteResultAsync(actionContext);
     }
 
-    private static void ValidateComponentExists(string component, PagesOptions pages)
+    private static void ValidateComponentExists(string component, PagesOptions pages, IMemoryCache? cache)
     {
         // Strategy 1: Check Vite manifest keys (production / build available)
         foreach (var manifestPath in pages.ManifestPaths)
         {
             if (File.Exists(manifestPath))
             {
-                var json = File.ReadAllText(manifestPath);
-                using var doc = JsonDocument.Parse(json);
+                var manifest = ViteManifest.Read(manifestPath, cache);
                 foreach (var ext in pages.Extensions)
                 {
                     var suffix = $"{component}.{ext}";
-                    if (doc.RootElement.EnumerateObject().Any(p => p.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+                    if (manifest.EnumerateObject().Any(p => p.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
                         return;
                 }
             }

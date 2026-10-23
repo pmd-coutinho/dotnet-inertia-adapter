@@ -83,7 +83,7 @@ public class InertiaMiddlewareTests
     }
 
     [Fact]
-    public async Task InvokeAsync_ShouldRewriteEmptyResponseTo200_WhenInertiaRequest()
+    public async Task InvokeAsync_ShouldRedirectEmptyResponseBack_WhenInertiaRequest()
     {
         var context = CreateContextWithInertiaServices(headers: new()
         {
@@ -99,7 +99,8 @@ public class InertiaMiddlewareTests
 
         await middleware.InvokeAsync(context);
 
-        context.Response.StatusCode.Should().Be(200);
+        context.Response.StatusCode.Should().Be(302);
+        context.Response.Headers.Location.ToString().Should().Be("/");
     }
 
     [Fact]

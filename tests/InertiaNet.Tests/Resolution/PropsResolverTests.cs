@@ -194,7 +194,7 @@ public class PropsResolverTests
             });
 
         metadata.MatchPropsOn.Should().NotBeNull();
-        metadata.MatchPropsOn!.Should().ContainKey("items");
+        metadata.MatchPropsOn!.Should().Equal("items.id");
     }
 
     // ── Dot-notation unpacking ────────────────────────────────────────────

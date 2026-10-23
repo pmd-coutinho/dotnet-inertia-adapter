@@ -14,13 +14,15 @@ namespace InertiaNet.TagHelpers;
 /// <remarks>
 /// <para>On the initial page load renders:</para>
 /// <code>
-/// &lt;div id="app"&gt;...SSR body if available...&lt;/div&gt;
+/// &lt;div id="app"&gt;&lt;/div&gt;
 /// &lt;script type="application/json" data-page="app"&gt;{"component":...}&lt;/script&gt;
 /// </code>
 /// <para>Usage in App.cshtml:</para>
 /// <code>
 /// &lt;inertia /&gt;
 /// </code>
+/// <para>Successful official SSR bodies include their own root and page script
+/// and are emitted directly. Configure the same root ID in the SSR entry point.</para>
 /// </remarks>
 [HtmlTargetElement("inertia", TagStructure = TagStructure.WithoutEndTag)]
 public sealed class InertiaTagHelper : TagHelper
@@ -48,14 +50,24 @@ public sealed class InertiaTagHelper : TagHelper
         output.TagName = null; // suppress the <inertia> wrapper tag
         output.TagMode = TagMode.StartTagAndEndTag;
 
-        // ── Root div ──────────────────────────────────────────────────────────
-        var divContent = ssr?.Body ?? string.Empty;
-        output.Content.AppendHtml($"<div id=\"{HtmlEncoder.Default.Encode(Id)}\">{divContent}</div>");
+        // Official SSR bodies already include the root element and page-data script.
+        if (ssr is not null)
+        {
+            output.Content.AppendHtml(ssr.Body);
+            return;
+        }
+
+        output.Content.AppendHtml($"<div id=\"{HtmlEncoder.Default.Encode(Id)}\"></div>");
 
         // ── Page data script ──────────────────────────────────────────────────
         if (page is not null)
         {
-            var json = JsonSerializer.Serialize(page, InertiaJsonOptions.GetTagHelperOptions(_options));
+            // Custom converters may use WriteRawValue, bypassing the encoder. Protect
+            // the HTML boundary after serialization too, without changing JSON values.
+            var json = JsonSerializer.Serialize(page, InertiaJsonOptions.GetTagHelperOptions(_options))
+                .Replace("<", "\\u003c", StringComparison.Ordinal)
+                .Replace(">", "\\u003e", StringComparison.Ordinal)
+                .Replace("&", "\\u0026", StringComparison.Ordinal);
             output.Content.AppendHtml(
                 $"\n<script type=\"application/json\" data-page=\"{HtmlEncoder.Default.Encode(Id)}\">{json}</script>");
         }

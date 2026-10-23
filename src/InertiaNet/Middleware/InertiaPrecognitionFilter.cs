@@ -14,32 +14,25 @@ public sealed class InertiaPrecognitionFilter : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (!context.HttpContext.Request.Headers.TryGetValue(HeaderNames.Precognition, out var precog)
-            || !precog.ToString().Equals("true", StringComparison.OrdinalIgnoreCase))
+        if (!PrecognitionValidation.IsPrecognitive(context.HttpContext.Request))
         {
             await next();
             return;
         }
 
-        HeaderDictionaryExtensions.Append(context.HttpContext.Response.Headers, "Vary", HeaderNames.Precognition);
-        context.HttpContext.Response.Headers[HeaderNames.PrecognitionSuccess] = "true";
-
-        if (context.ModelState.IsValid)
+        var errors = PrecognitionValidation.SelectErrors(context.HttpContext.Request,
+            context.ModelState.Where(pair => pair.Value?.Errors.Count > 0)
+                .Select(pair => new KeyValuePair<string, string[]>(pair.Key,
+                    pair.Value!.Errors.Select(error => string.IsNullOrEmpty(error.ErrorMessage)
+                        ? "The value is invalid." : error.ErrorMessage).ToArray())));
+        PrecognitionValidation.SetHeaders(context.HttpContext.Response, errors.Count == 0);
+        if (errors.Count == 0)
         {
             context.Result = new StatusCodeResult(204);
         }
         else
         {
-            var errors = new Dictionary<string, string[]>();
-            foreach (var kvp in context.ModelState)
-            {
-                if (kvp.Value.Errors.Count > 0)
-                {
-                    var key = JsonNamingPolicy.CamelCase.ConvertName(kvp.Key);
-                    errors[key] = kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray();
-                }
-            }
-            context.Result = new UnprocessableEntityObjectResult(errors);
+            context.Result = new UnprocessableEntityObjectResult(PrecognitionValidation.ErrorPayload(errors));
         }
     }
 }

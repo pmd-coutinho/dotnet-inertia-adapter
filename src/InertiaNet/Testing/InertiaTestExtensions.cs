@@ -16,7 +16,11 @@ public static class InertiaTestExtensions
     /// an <see cref="AssertableInertiaPage"/> for fluent assertions.
     /// </summary>
     /// <exception cref="AssertionException">Thrown if the response is not an Inertia JSON response.</exception>
-    public static async Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response)
+    public static Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response)
+        => response.AssertInertiaAsync(CancellationToken.None);
+
+    /// <summary>Asserts and parses an Inertia page, respecting cancellation while reading it.</summary>
+    public static async Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response, CancellationToken ct)
     {
         if (response.StatusCode != HttpStatusCode.OK)
             throw new AssertionException($"Expected status 200, got {(int)response.StatusCode}.");
@@ -27,16 +31,19 @@ public static class InertiaTestExtensions
             throw new AssertionException($"Expected {HeaderNames.Inertia}: true response header.");
         }
 
-        if (!response.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
+        if (response.Content.Headers.ContentType?.MediaType is not { } mediaType
+            || !(mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase) || mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase)))
             throw new AssertionException($"Expected JSON content type, got '{response.Content.Headers.ContentType?.MediaType}'.");
 
-        var json = await response.Content.ReadAsStringAsync();
-        var page = JsonSerializer.Deserialize<InertiaPage>(json, InertiaJsonOptions.Default);
-
-        if (page is null)
-            throw new AssertionException("Response is not a valid Inertia page JSON.");
-
-        return new AssertableInertiaPage(page);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        try
+        {
+            var page = JsonSerializer.Deserialize<InertiaPage>(json, InertiaJsonOptions.Default);
+            if (page is null || page.Props is null || page.Component is null || page.Url is null)
+                throw new AssertionException("Response is not a valid Inertia page JSON.");
+            return new AssertableInertiaPage(page);
+        }
+        catch (JsonException ex) { throw new AssertionException($"Response is not a valid Inertia page JSON: {ex.Message}"); }
     }
 
     /// <summary>

@@ -36,7 +36,6 @@
 
   <ItemGroup>
     <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>

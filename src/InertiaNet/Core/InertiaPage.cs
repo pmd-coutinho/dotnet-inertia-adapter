@@ -37,15 +37,18 @@ public sealed class InertiaPage
 
     /// <summary>
     /// Keys used for deduplication when merging.
-    /// Map of prop path -> match key expression.
+    /// Full property paths, for example "users.data.id".
     /// </summary>
-    public IReadOnlyDictionary<string, object?>? MatchPropsOn { get; init; }
+    public IReadOnlyList<string>? MatchPropsOn { get; init; }
 
     /// <summary>
     /// Groups of deferred prop paths loaded asynchronously after the initial render.
     /// Map of group name -> list of prop paths.
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>>? DeferredProps { get; init; }
+
+    /// <summary>Deferred prop paths whose failures were rescued and can be retried.</summary>
+    public IReadOnlyList<string>? RescuedProps { get; init; }
 
     /// <summary>
     /// Pagination metadata for scroll (infinite scroll) props.

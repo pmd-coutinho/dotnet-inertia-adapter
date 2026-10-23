@@ -13,6 +13,29 @@ namespace InertiaNet.Tests.Core;
 public class InertiaJsonOptionsTests
 {
     [Fact]
+    public async Task ProtocolMetadata_RetainsItsNamesAndExplicitNulls_WithCustomNamingAndOmission()
+    {
+        var (result, context) = CreateInertiaResult(new()
+        {
+            ["countries"] = new InertiaNet.Props.OnceProp((_, _) => Task.FromResult<object?>(new[] { "PT" })),
+            ["feed"] = new InertiaNet.Props.ScrollProp(new { data = new[] { 1 } }, metadata: new InertiaNet.Props.ScrollMetadata { CurrentPage = 1 }),
+        }, options => options.JsonSerializerOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
+        });
+        await result.ExecuteAsync(context);
+        using var document = JsonDocument.Parse(await context.ReadResponseBodyAsync());
+        var once = document.RootElement.GetProperty("onceProps").GetProperty("countries");
+        once.GetProperty("expiresAt").ValueKind.Should().Be(JsonValueKind.Null);
+        var scroll = document.RootElement.GetProperty("scrollProps").GetProperty("feed");
+        scroll.GetProperty("pageName").GetString().Should().Be("page");
+        scroll.GetProperty("previousPage").ValueKind.Should().Be(JsonValueKind.Null);
+        scroll.GetProperty("reset").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ShouldUseCamelCaseForPageProperties_ByDefault()
     {
         var (result, context) = CreateInertiaResult(

@@ -10,6 +10,28 @@ namespace InertiaNet.Extensions;
 /// </summary>
 public static class EndpointExtensions
 {
+    /// <summary>Handles validation-only requests using DataAnnotations without running the handler.</summary>
+    public static RouteHandlerBuilder WithInertiaPrecognition(this RouteHandlerBuilder builder)
+    {
+        builder.AddEndpointFilterFactory((context, next) =>
+        {
+            var filter = new InertiaPrecognitionEndpointFilter(context.MethodInfo);
+            return invocation => filter.InvokeAsync(invocation, next);
+        });
+        return builder;
+    }
+
+    /// <summary>Handles validation-only requests for every endpoint in this route group.</summary>
+    public static RouteGroupBuilder WithInertiaPrecognition(this RouteGroupBuilder builder)
+    {
+        builder.AddEndpointFilterFactory((context, next) =>
+        {
+            var filter = new InertiaPrecognitionEndpointFilter(context.MethodInfo);
+            return invocation => filter.InvokeAsync(invocation, next);
+        });
+        return builder;
+    }
+
     /// <summary>
     /// Adds Inertia validation error forwarding to this endpoint or route group.
     /// Validation errors set via <c>httpContext.SetInertiaValidationErrors()</c>

@@ -117,6 +117,60 @@ public sealed class AssertableInertiaPage
         return this;
     }
 
+    /// <summary>Asserts that a prop belongs to the specified deferred group.</summary>
+    public AssertableInertiaPage HasDeferredProp(string path, string group = "default")
+    {
+        HasDeferredPropGroup(group);
+        return Contains(_page.DeferredProps![group], path, $"deferred group '{group}'");
+    }
+
+    /// <summary>Asserts that a prop will be appended when merging.</summary>
+    public AssertableInertiaPage HasMergeProp(string path) => Contains(_page.MergeProps, path, "mergeProps");
+
+    /// <summary>Asserts that a prop will be prepended when merging.</summary>
+    public AssertableInertiaPage HasPrependProp(string path) => Contains(_page.PrependProps, path, "prependProps");
+
+    /// <summary>Asserts that a prop will be deep merged.</summary>
+    public AssertableInertiaPage HasDeepMergeProp(string path) => Contains(_page.DeepMergeProps, path, "deepMergeProps");
+
+    /// <summary>Asserts that a full matching path is present.</summary>
+    public AssertableInertiaPage HasMatchingProp(string path) => Contains(_page.MatchPropsOn, path, "matchPropsOn");
+
+    /// <summary>Asserts that a deferred prop failed with rescue enabled.</summary>
+    public AssertableInertiaPage HasRescuedProp(string path) => Contains(_page.RescuedProps, path, "rescuedProps");
+
+    /// <summary>Asserts once metadata exists; a supplied non-null value must match its complete JSON shape.</summary>
+    public AssertableInertiaPage HasOnceProp(string key, object? expectedMetadata = null)
+        => Metadata(_page.OnceProps, "onceProps", key, expectedMetadata);
+
+    /// <summary>Asserts scroll metadata exists; a supplied non-null value must match its complete JSON shape.</summary>
+    public AssertableInertiaPage HasScrollProp(string path, object? expectedMetadata = null)
+        => Metadata(_page.ScrollProps, "scrollProps", path, expectedMetadata);
+
+    /// <summary>Asserts a prop exists with an explicit JSON null value.</summary>
+    public AssertableInertiaPage HasNullProp(string path)
+    {
+        if (!TryGetValueAtPath(_page.Props, path, out var value) || value.ValueKind != JsonValueKind.Null)
+            throw new AssertionException($"Expected prop '{path}' to be null.");
+        return this;
+    }
+
+    private AssertableInertiaPage Contains(IReadOnlyList<string>? paths, string path, string kind)
+    {
+        if (paths?.Contains(path) != true) throw new AssertionException($"Expected '{path}' in {kind}.");
+        return this;
+    }
+
+    private AssertableInertiaPage Metadata(IReadOnlyDictionary<string, object?>? metadata, string kind, string key, object? expected)
+    {
+        if (metadata is null || !metadata.TryGetValue(key, out var actual))
+            throw new AssertionException($"Expected '{key}' in {kind}.");
+        if (expected is not null && !JsonEquals(ToJsonElement(actual), JsonSerializer.SerializeToElement(expected,
+            new JsonSerializerOptions(InertiaJsonOptions.Default) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never })))
+            throw new AssertionException($"Metadata for '{key}' in {kind} did not match the expected JSON.");
+        return this;
+    }
+
     /// <summary>Asserts the clearHistory flag is set.</summary>
     public AssertableInertiaPage HasClearHistory()
     {
@@ -286,7 +340,7 @@ public sealed class AssertableInertiaPage
                 while (index < path.Length && path[index] != ']')
                     index++;
 
-                if (index >= path.Length || !int.TryParse(path[indexStart..index], out var parsedIndex))
+                if (index >= path.Length || !int.TryParse(path[indexStart..index], out var parsedIndex) || parsedIndex < 0)
                     throw new AssertionException($"Invalid path segment in '{path}'.");
 
                 arrayIndex = parsedIndex;

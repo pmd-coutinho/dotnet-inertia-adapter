@@ -58,6 +58,9 @@ public class InertiaOptions
     /// </summary>
     public PagesOptions Pages { get; set; } = new();
 
+    /// <summary>Opt-in development diagnostics for prop resolution; no prop values are recorded.</summary>
+    public PropDiagnosticsOptions PropDiagnostics { get; set; } = new();
+
     /// <summary>
     /// Custom JSON serializer options for Inertia page responses.
     /// InertiaNet preserves the protocol envelope field names regardless of these settings,
@@ -105,6 +108,13 @@ public class SsrOptions
     public bool ThrowOnError { get; set; } = false;
 
     /// <summary>
+    /// Maximum time for an SSR request, including reading its response. Defaults to
+    /// three seconds. Use <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> to disable this limit.
+    /// A shorter timeout configured on the named HttpClient still applies.
+    /// </summary>
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
     /// URL path patterns to exclude from SSR.
     /// Supports wildcards, e.g. "/admin/*".
     /// </summary>
@@ -138,4 +148,17 @@ public class PagesOptions
     /// Allowed file extensions for page components.
     /// </summary>
     public string[] Extensions { get; set; } = ["js", "jsx", "ts", "tsx", "vue", "svelte"];
+}
+
+/// <summary>Controls opt-in prop timing/classification diagnostics.</summary>
+public class PropDiagnosticsOptions
+{
+    /// <summary>Enable collection and diagnostic logging. Defaults to false.</summary>
+    public bool Enabled { get; set; }
+    /// <summary>Restrict diagnostics to the Development environment. Defaults to true.</summary>
+    public bool DevelopmentOnly { get; set; } = true;
+    /// <summary>Maximum measurements retained per resolution, including nested paths. Defaults to 200.</summary>
+    public int MaxEntries { get; set; } = 200;
+    /// <summary>Threshold for warning-level slow-prop logging. Defaults to 100 milliseconds.</summary>
+    public TimeSpan SlowPropThreshold { get; set; } = TimeSpan.FromMilliseconds(100);
 }

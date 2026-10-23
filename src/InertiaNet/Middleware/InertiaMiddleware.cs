@@ -78,16 +78,28 @@ public class InertiaMiddleware
         var url = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
         context.Response.StatusCode = StatusCodes.Status409Conflict;
         context.Response.Headers[HeaderNames.Location] = url;
+        var version = InertiaRequestSettings.Resolve(context,
+            context.RequestServices.GetRequiredService<IOptions<InertiaOptions>>().Value).Version;
+        if (version is not null) context.Response.Headers[HeaderNames.Version] = version;
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Called when an Inertia request receives an empty (204) response.
-    /// Default: rewrite to 200 so the Inertia client doesn't navigate away.
+    /// Called for an empty Inertia response. Redirects back to load a page object.
     /// </summary>
     protected virtual Task OnEmptyResponse(HttpContext context)
     {
-        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.StatusCode = StatusCodes.Status302Found;
+        var request = context.Request;
+        var back = request.PathBase + request.Path + request.QueryString;
+        var referer = request.Headers.Referer.ToString();
+        if (referer.StartsWith('/') && !referer.StartsWith("//") && !referer.StartsWith("/\\"))
+            back = referer;
+        else if (Uri.TryCreate(referer, UriKind.Absolute, out var uri)
+            && uri.Scheme.Equals(request.Scheme, StringComparison.OrdinalIgnoreCase)
+            && uri.Authority.Equals(request.Host.Value, StringComparison.OrdinalIgnoreCase))
+            back = uri.PathAndQuery + uri.Fragment;
+        context.Response.Headers.Location = string.IsNullOrEmpty(back) ? "/" : back;
         return Task.CompletedTask;
     }
 
@@ -98,6 +110,7 @@ public class InertiaMiddleware
     protected virtual Task OnRedirectWithFragment(HttpContext context, string redirectUrl)
     {
         context.Response.StatusCode = StatusCodes.Status409Conflict;
+        context.Response.Headers.Remove("Location");
         context.Response.Headers[HeaderNames.Redirect] = redirectUrl;
         return Task.CompletedTask;
     }
@@ -132,10 +145,29 @@ public class InertiaMiddleware
 
         var inertia = services.GetRequiredService<IInertiaService>();
 
+        InertiaResponseHeaders.AppendVary(context.Response, HeaderNames.Inertia);
+        context.Response.OnStarting(() =>
+        {
+            InertiaResponseHeaders.AppendVary(context.Response, HeaderNames.Inertia);
+            return Task.CompletedTask;
+        });
+
+        // Check before consuming any flash/errors/history state. The following
+        // full-page request must still be able to receive those values.
+        var isInertia = context.Request.IsInertia();
+        if (isInertia && HttpMethods.IsGet(context.Request.Method) && requestSettings.Version is not null
+            && (context.Request.GetInertiaVersion() ?? "") != requestSettings.Version)
+        {
+            await OnVersionChange(context);
+            return;
+        }
+
         // Detect prefetch requests — avoid all session/TempData side-effects
         var isPrefetch = context.Request.Headers.TryGetValue(HeaderNames.Purpose, out var purposeHeader)
             && purposeHeader.ToString().Equals("prefetch", StringComparison.OrdinalIgnoreCase);
 
+        // An empty errors object clears old validation errors during partial reloads.
+        inertia.Share("errors", new AlwaysProp(new Dictionary<string, object?>()));
         // Let the subclass share global / once props
         await Share(context, inertia);
         await ShareOnce(context, inertia);
@@ -150,7 +182,7 @@ public class InertiaMiddleware
             var logger = services.GetService<ILoggerFactory>()?.CreateLogger<InertiaMiddleware>();
             logger?.LogWarning(
                 "ITempDataDictionaryFactory is not registered. Flash data and validation error " +
-                "forwarding will be disabled. Call AddSession() and UseSession() to enable these features.");
+                "forwarding will be disabled. Register MVC TempData services with a cookie or session provider.");
         }
         if (!isPrefetch && tempDataFactory is not null)
         {
@@ -177,8 +209,6 @@ public class InertiaMiddleware
                 tempData.Save();
             }
         }
-
-        bool isInertia = context.Request.IsInertia();
 
         // ── Restore flash data from TempData (from a previous redirect) ───────
         // Skip on prefetch — flash should only fire on the real navigation visit.
@@ -208,28 +238,19 @@ public class InertiaMiddleware
             }
         }
 
-        // ── Version check (Inertia-only, GET requests) ────────────────────────
-        if (isInertia && context.Request.Method == HttpMethods.Get && requestSettings.Version is not null)
-        {
-            var clientVersion = context.Request.GetInertiaVersion();
-            if (clientVersion is not null && clientVersion != requestSettings.Version)
-            {
-                await OnVersionChange(context);
-                return;
-            }
-        }
-
-        // Always add Vary: X-Inertia
-        context.Response.OnStarting(() =>
-        {
-            if (!context.Response.Headers.ContainsKey("Vary"))
-                context.Response.Headers.Vary = HeaderNames.Inertia;
-            return Task.CompletedTask;
-        });
-
         await _next(context);
 
         // ── Post-handler fixups ───────────────────────────────────────────────
+
+        if (!context.Response.HasStarted)
+            InertiaResponseHeaders.AppendVary(context.Response, HeaderNames.Inertia);
+        var canNormalize = isInertia && !context.Response.HasStarted
+            && !PrecognitionValidation.IsPrecognitive(context.Request);
+        if (canNormalize && (context.Response.StatusCode == StatusCodes.Status204NoContent
+            || (context.Response.StatusCode == StatusCodes.Status200OK
+                && context.Response.ContentLength is null or 0
+                && (!context.Response.Body.CanSeek || context.Response.Body.Length == 0))))
+            await OnEmptyResponse(context);
 
         // Persist flash data to TempData when redirecting so it survives the next request.
         // Skip on prefetch to avoid double-writing flash that was already restored.
@@ -250,20 +271,15 @@ public class InertiaMiddleware
             tempData.Save();
         }
 
-        if (!isInertia) return;
+        if (!canNormalize) return;
 
-        // Inertia requires that redirects from non-GET use 303 instead of 302/301
-        if (IsRedirect(context.Response.StatusCode) &&
-            context.Request.Method != HttpMethods.Get)
+        // Mutation redirects must be followed with GET; preserve deliberate
+        // permanent/method-preserving redirects and safe-method semantics.
+        if (context.Response.StatusCode == StatusCodes.Status302Found &&
+            (HttpMethods.IsPost(context.Request.Method) || HttpMethods.IsPut(context.Request.Method)
+                || HttpMethods.IsPatch(context.Request.Method) || HttpMethods.IsDelete(context.Request.Method)))
         {
             context.Response.StatusCode = StatusCodes.Status303SeeOther;
-        }
-
-        // Empty responses → 200 (Inertia protocol)
-        if (context.Response.StatusCode == StatusCodes.Status204NoContent)
-        {
-            await OnEmptyResponse(context);
-            return;
         }
 
         // Fragment-bearing redirects → 409 + X-Inertia-Redirect (v3)
@@ -306,7 +322,7 @@ public class InertiaMiddleware
                     JsonValueKind.True => true,
                     JsonValueKind.False => false,
                     JsonValueKind.Null => null,
-                    _ => prop.Value.GetRawText(),
+                    _ => prop.Value.Clone(),
                 };
             }
         }

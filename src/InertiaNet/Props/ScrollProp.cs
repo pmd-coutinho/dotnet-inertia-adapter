@@ -19,7 +19,7 @@ public sealed class ScrollProp : IDeferrable, IMergeable
 
     // IDeferrable
     private bool _deferred;
-    private readonly string _group;
+    private string _group;
 
     // IMergeable — scroll always merges
     private bool _deepMerge;
@@ -78,6 +78,8 @@ public sealed class ScrollProp : IDeferrable, IMergeable
     public void ConfigureMergeIntent(HttpContext context)
     {
         var intent = context.Request.Headers[Support.HeaderNames.InfiniteScrollMergeIntent].ToString();
+        _appendAtPaths.Clear();
+        _prependAtPaths.Clear();
         if (intent == "prepend")
         {
             _prependAtRoot = false;
@@ -110,7 +112,7 @@ public sealed class ScrollProp : IDeferrable, IMergeable
     // --- Fluent builder ---
 
     /// <summary>Defer this scroll prop (load asynchronously after initial render).</summary>
-    public ScrollProp Defer(string? group = null) { _deferred = true; return this; }
+    public ScrollProp Defer(string? group = null) { _deferred = true; if (group is not null) _group = group; return this; }
 
     /// <summary>Enable deep merging.</summary>
     public ScrollProp DeepMerge() { _deepMerge = true; return this; }

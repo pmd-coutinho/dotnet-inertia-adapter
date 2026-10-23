@@ -10,7 +10,7 @@ namespace InertiaNet.Props;
 /// Can be combined with merge, deep-merge, once, and append/prepend behaviours.
 /// </para>
 /// </summary>
-public sealed class DeferProp : IDeferrable, IIgnoreFirstLoad, IMergeable, IOnceable
+public sealed class DeferProp : IDeferrable, IIgnoreFirstLoad, IMergeable, IOnceable, IRescuable
 {
     private readonly Func<IServiceProvider, CancellationToken, Task<object?>> _callback;
 
@@ -31,6 +31,12 @@ public sealed class DeferProp : IDeferrable, IIgnoreFirstLoad, IMergeable, IOnce
     private bool _refresh;
     private long? _expiresAt;
     private string? _key;
+
+    /// <inheritdoc />
+    public bool ShouldRescue { get; private set; }
+
+    /// <summary>Report callback failures in rescuedProps; cancellation still propagates.</summary>
+    public DeferProp Rescue(bool rescue = true) { ShouldRescue = rescue; return this; }
 
     public DeferProp(Func<IServiceProvider, CancellationToken, Task<object?>> callback, string? group = null)
     {

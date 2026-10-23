@@ -6,6 +6,12 @@ namespace InertiaNet.Core;
 public class ViteOptions
 {
     /// <summary>
+    /// Cache parsed manifests, checking file length and last-write time on every read.
+    /// Defaults to true. Disable when a deployment preserves both values while replacing content.
+    /// </summary>
+    public bool CacheManifest { get; set; } = true;
+
+    /// <summary>
     /// The web root directory that Vite writes its output into.
     /// Defaults to <c>"wwwroot"</c>.
     /// </summary>

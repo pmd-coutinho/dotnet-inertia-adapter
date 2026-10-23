@@ -23,8 +23,9 @@ internal sealed class InertiaPageJsonConverter : JsonConverter<InertiaPage>
         WriteOptional(writer, "mergeProps", value.MergeProps, options);
         WriteOptional(writer, "prependProps", value.PrependProps, options);
         WriteOptional(writer, "deepMergeProps", value.DeepMergeProps, options);
-        WriteOptionalDictionary(writer, "matchPropsOn", value.MatchPropsOn, options);
+        WriteOptional(writer, "matchPropsOn", value.MatchPropsOn, options);
         WriteOptionalDictionary(writer, "deferredProps", value.DeferredProps, options);
+        WriteOptional(writer, "rescuedProps", value.RescuedProps, options);
         WriteOptionalDictionary(writer, "scrollProps", value.ScrollProps, options);
         WriteOptionalDictionary(writer, "onceProps", value.OnceProps, options);
         WriteOptionalDictionary(writer, "flash", value.Flash, options);
@@ -102,7 +103,7 @@ internal static class InertiaJsonOptions
         => CreateOptions(options?.JsonSerializerOptions, encoder: null);
 
     public static JsonSerializerOptions GetTagHelperOptions(InertiaOptions? options)
-        => CreateOptions(options?.JsonSerializerOptions, JavaScriptEncoder.UnsafeRelaxedJsonEscaping);
+        => CreateOptions(options?.JsonSerializerOptions, JavaScriptEncoder.Default);
 
     private static JsonSerializerOptions CreateOptions(
         JsonSerializerOptions? userOptions,

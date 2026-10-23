@@ -9,6 +9,10 @@ namespace InertiaNet.Extensions;
 /// </summary>
 public static class InertiaResults
 {
+    /// <summary>Produces a page using the component's declared props contract.</summary>
+    public static IResult Inertia<TProps>(InertiaComponent<TProps> component, TProps props)
+        => Inertia(component.Name, (object?)props);
+
     /// <summary>
     /// Produces an Inertia response for the given component and props.
     /// </summary>
