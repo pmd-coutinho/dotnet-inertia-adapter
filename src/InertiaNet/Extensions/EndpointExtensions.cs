@@ -1,4 +1,5 @@
 using InertiaNet.Middleware;
+using InertiaNet.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -10,6 +11,10 @@ namespace InertiaNet.Extensions;
 /// </summary>
 public static class EndpointExtensions
 {
+    /// <summary>Declares a component for optional endpoint-manifest validation.</summary>
+    public static RouteHandlerBuilder WithInertiaComponent(this RouteHandlerBuilder builder, string component)
+        => builder.WithMetadata(new InertiaComponentMetadata(component));
+
     /// <summary>Handles validation-only requests using DataAnnotations without running the handler.</summary>
     public static RouteHandlerBuilder WithInertiaPrecognition(this RouteHandlerBuilder builder)
     {
