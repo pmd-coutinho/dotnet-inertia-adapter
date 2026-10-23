@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Caching.Memory;
 using InertiaNet.Vite;
+using InertiaNet.Diagnostics;
 using System.Text.Json;
 
 namespace InertiaNet.Core;
@@ -127,20 +128,14 @@ public sealed class InertiaResult : IActionResult, IResult
                 httpContext.Response.Headers.CacheControl = $"private, max-age={maxAge}";
             }
 
-            if (isInertiaRequest)
+            async Task WritePageAsync()
             {
-                await WriteJsonResponseAsync(httpContext, page, ct);
+                if (isInertiaRequest) await WriteJsonResponseAsync(httpContext, page, ct);
+                else await WriteHtmlResponseAsync(httpContext, actionContext, page, services, requestSettings, ct);
             }
-            else
-            {
-                await WriteHtmlResponseAsync(
-                    httpContext,
-                    actionContext,
-                    page,
-                    services,
-                    requestSettings,
-                    ct);
-            }
+            if (httpContext.Items.TryGetValue(PropDiagnosticsTrace.ContextKey, out var trace) && trace is PropDiagnosticsTrace diagnostics)
+                await diagnostics.MeasureRenderAsync(httpContext, _component, isInertiaRequest ? "json" : "html", WritePageAsync);
+            else await WritePageAsync();
         }
         catch (Exception ex) when (options.HandleExceptionsUsing is not null
             && !(ex is OperationCanceledException && ct.IsCancellationRequested))

@@ -4,6 +4,9 @@ using InertiaNet.Core;
 using InertiaNet.Diagnostics;
 using InertiaNet.Props;
 using InertiaNet.Resolution;
+using InertiaNet.Extensions;
+using System.Text;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -35,13 +38,14 @@ public class PropDiagnosticsTests
         var log = new RecordingLogger();
         using var services = Services(new() { PropDiagnostics = new() { Enabled = true, SlowPropThreshold = TimeSpan.Zero } }, logger: log);
         var context = new DefaultHttpContext();
+        context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new EndpointNameMetadata("page.index")), "page"));
         context.Request.Headers["X-Inertia"] = "true";
         context.Request.Headers["X-Inertia-Except-Once-Props"] = "cache-key";
         var called = 0;
         await new PropsResolver(context, "Page", services).ResolveAsync([], new()
         {
             ["name"] = "do-not-record-this-value",
-            ["deferred"] = new DeferProp((_, _) => Task.FromResult<object?>(++called)),
+            ["deferred"] = new DeferProp((_, _) => Task.FromResult<object?>(++called), "slow"),
             ["optional"] = new OptionalProp((_, _) => Task.FromResult<object?>(++called)),
             ["once"] = new OnceProp((_, _) => Task.FromResult<object?>(++called)).As("cache-key"),
             ["returned"] = (Func<object?>)(() => new DeferProp((_, _) => Task.FromResult<object?>(++called))),
@@ -52,12 +56,71 @@ public class PropDiagnosticsTests
         var diagnostics = context.GetInertiaPropDiagnostics();
         diagnostics.Should().Contain(entry => entry.Path == "name" && entry.Kind == "value" && entry.Outcome == "resolved" && entry.IsSlow);
         diagnostics.Should().Contain(entry => entry.Path == "deferred" && entry.Kind == "deferred" && entry.Outcome == "deferred");
+        diagnostics.Single(entry => entry.Path == "deferred").DeferredGroup.Should().Be("slow");
+        diagnostics.Single(entry => entry.Path == "once").OnceKey.Should().Be("cache-key");
+        diagnostics.Should().OnlyContain(entry => entry.RouteName == "page.index");
         diagnostics.Should().Contain(entry => entry.Path == "optional" && entry.Outcome == "optional");
         diagnostics.Should().Contain(entry => entry.Path == "once" && entry.Outcome == "cached");
         diagnostics.Should().Contain(entry => entry.Path == "returned" && entry.Kind == "deferred" && entry.Outcome == "deferred");
         diagnostics.Should().Contain(entry => entry.Path == "nested.child" && entry.Kind == "callback" && entry.Outcome == "resolved");
         diagnostics.Should().OnlyContain(entry => entry.Duration >= TimeSpan.Zero);
         log.Entries.Should().NotBeEmpty().And.NotContain(entry => entry.Contains("do-not-record-this-value"));
+    }
+
+    [Fact]
+    public async Task JsonRender_CountsActualBytes_WithoutEvaluatingFactoriesAgain()
+    {
+        var collection = new ServiceCollection().AddLogging();
+        collection.AddInertia(options => { options.PropDiagnostics.Enabled = true; options.PropDiagnostics.DevelopmentOnly = false; });
+        using var services = collection.BuildServiceProvider();
+        using var scope = services.CreateScope();
+        using var body = new MemoryStream();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new EndpointNameMetadata("page.index")), "page"));
+        context.Request.Headers["X-Inertia"] = "true";
+        context.Response.Body = body;
+        var calls = 0;
+        await scope.ServiceProvider.GetRequiredService<IInertiaService>()
+            .Render("Page", new { value = (Func<object?>)(() => { calls++; return "private 日本語"; }) }).ExecuteAsync(context);
+        calls.Should().Be(1);
+        context.Response.Body.Should().BeSameAs(body);
+        var render = context.GetInertiaRenderDiagnostics()!;
+        render.BytesWritten.Should().Be(body.Length).And.BeGreaterThan(0);
+        render.RouteName.Should().Be("page.index");
+        render.Format.Should().Be("json");
+        render.Component.Should().Be("Page");
+        render.Succeeded.Should().BeTrue();
+        render.ToString().Should().NotContain("private");
+        body.CanWrite.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RenderScope_CountsHtmlWrites_AndRestoresTheStreamOnFailures(bool fail)
+    {
+        using var services = Services(new() { PropDiagnostics = new() { Enabled = true } });
+        using var body = new MemoryStream();
+        var context = new DefaultHttpContext();
+        context.Response.Body = body;
+        var trace = PropDiagnosticsTrace.Create(context, services, new() { Enabled = true, DevelopmentOnly = false })!;
+        const string html = "<p>Olá 日本語</p>";
+        var calls = 0;
+        Func<Task> render = () => trace.MeasureRenderAsync(context, "Page", "html", async () =>
+        {
+            calls++;
+            await context.Response.WriteAsync(html);
+            if (fail) throw new InvalidOperationException("render failure");
+        });
+        if (fail) await render.Should().ThrowAsync<InvalidOperationException>();
+        else await render();
+        calls.Should().Be(1);
+        context.Response.Body.Should().BeSameAs(body);
+        body.CanWrite.Should().BeTrue();
+        var snapshot = context.GetInertiaRenderDiagnostics()!;
+        snapshot.BytesWritten.Should().Be(Encoding.UTF8.GetByteCount(html));
+        snapshot.Succeeded.Should().Be(!fail);
+        snapshot.Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
     }
 
     [Fact]

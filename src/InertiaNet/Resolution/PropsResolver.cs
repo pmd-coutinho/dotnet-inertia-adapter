@@ -130,7 +130,7 @@ internal sealed class PropsResolver
         {
             ct.ThrowIfCancellationRequested();
             var path = parent is null ? key : $"{parent}.{key}";
-            using var measurement = _diagnostics?.Begin(path, PropKind(original));
+            using var measurement = _diagnostics?.Begin(path, PropKind(original), original);
             try
             {
                 if (_isPartial && original is not AlwaysProp && !parentWasResolved && !Included(path, traverseParents: true))
@@ -155,6 +155,7 @@ internal sealed class PropsResolver
                         if (depth == 32) throw new InvalidOperationException($"Too many nested prop wrappers at '{path}'.");
                         prop = resolved;
                         measurement?.Kind(PropKind(prop));
+                        measurement?.Metadata(prop);
                         if (!_isPartial && ExcludeInitial(prop, path))
                         {
                             measurement?.Complete(InitialOutcome(prop));
