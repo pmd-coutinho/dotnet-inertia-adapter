@@ -236,6 +236,66 @@ public class SemanticContractTests
     }
 
     [Fact]
+    public void NestedFactoryWrappersAndScrollModifiers_RetainOmissionMetadata_AndRecursiveDelegatesAreDiagnosed()
+    {
+        var (_, contracts) = Discover("""
+            #nullable enable
+            using System;
+            using System.Threading.Tasks;
+            using System.Collections.Generic;
+            using InertiaNet.Core;
+            using InertiaNet.Props;
+            delegate Again Again();
+            class Props
+            {
+                [InertiaPropType(typeof(int))] public Func<Task<DeferProp>> Stats { get; set; } = default!;
+                public Again Recursive { get; set; } = default!;
+            }
+            class Page
+            {
+                void Index(IInertiaService inertia)
+                {
+                    inertia.Render("Factories", new Props());
+                    inertia.Render("Scroll", new { Rows = inertia.Scroll(new[] { 1 }).Defer("slow") });
+                    inertia.Render("DictionaryScroll", new Dictionary<string, object> { ["rows"] = inertia.Scroll(new[] { 1 }).Defer("slow") });
+                }
+            }
+            """);
+        var fields = contracts.Pages.Single(page => page.ComponentName == "Factories").Props;
+        fields.Single(field => field.Name == "stats").IsOptional.Should().BeTrue();
+        fields.Single(field => field.Name == "stats").IsDeferred.Should().BeTrue();
+        fields.Single(field => field.Name == "recursive").TypeScriptType.Should().Be("unknown");
+        contracts.Pages.Single(page => page.ComponentName == "Scroll").Props.Single().IsOptional.Should().BeTrue();
+        contracts.Pages.Single(page => page.ComponentName == "Scroll").Props.Single().TypeScriptType.Should().Be("number[]");
+        contracts.Pages.Single(page => page.ComponentName == "DictionaryScroll").Props.Single().IsOptional.Should().BeTrue();
+        contracts.Pages.Single(page => page.ComponentName == "DictionaryScroll").Props.Single().TypeScriptType.Should().Be("number[]");
+        PathfinderDiagnostics.Entries.Should().Contain(entry => entry.Code == "PATHFINDER221");
+    }
+
+    [Fact]
+    public void ExplicitPropHints_AreNonNullableUnlessTheHintIsANullableValueType()
+    {
+        var (_, contracts) = Discover("""
+            #nullable enable
+            using InertiaNet.Core;
+            using InertiaNet.Props;
+            class Child { public int Id { get; set; } }
+            class Props
+            {
+                [InertiaPropType(typeof(Child))] public required ScrollProp Rows { get; init; }
+                [InertiaPropType(typeof(int?))] public required DeferProp Count { get; init; }
+            }
+            class Page { void Index(IInertiaService inertia) { inertia.Render<Props>("Hints", default!); } }
+            """);
+        var fields = contracts.Pages.Single().Props;
+        fields.Single(field => field.Name == "rows").TypeScriptType.Should().Be("Child");
+        fields.Single(field => field.Name == "rows").IsOptional.Should().BeFalse();
+        fields.Single(field => field.Name == "count").TypeScriptType.Should().Be("number | null");
+        fields.Single(field => field.Name == "count").IsOptional.Should().BeTrue();
+        PathfinderDiagnostics.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
     public void MinimalBinding_InferScalarQueries_AndDiagnoseAmbiguousBodyServiceAndGroupedParameters()
     {
         PathfinderDiagnostics.Clear();

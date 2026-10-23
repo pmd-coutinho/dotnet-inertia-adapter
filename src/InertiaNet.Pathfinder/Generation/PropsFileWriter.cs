@@ -46,7 +46,10 @@ static class PropsFileWriter
                 var optional = prop.IsOptional ? "?" : "";
                 sb.AppendLine($"    {NameUtils.PropertyKey(prop.Name)}{optional}: {prop.TypeScriptType}");
             }
-            if (page.HasExtensionData) sb.AppendLine("    [key: string]: unknown");
+            // Page roots include request-wide shared fields and must satisfy
+            // Inertia's PageProps constraint. A plain index signature also stays
+            // consumable by Vue's runtime props compiler.
+            sb.AppendLine("    [key: string]: unknown");
 
             sb.AppendLine("}");
 

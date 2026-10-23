@@ -41,6 +41,8 @@ export const uploadContract: ContractsUploadForm = { 'title-field': 'File', hidd
 // @ts-expect-error the JSON request uses its JSON name, independently of query/form aliases
 export const wrongBody: ContractsStorePayload = { term: 'Wrong' }
 declare const sharedPage: PageProps
+declare const generatedProps: PropsFor<'Contract/Index'>
+export const compatiblePageProps: PageProps = generatedProps
 export const sharedUserId: number | undefined = sharedPage.auth?.user.id
 // @ts-expect-error shared props module augmentation preserves the user ID type
 export const wrongSharedUserId: string | undefined = sharedPage.auth?.user.id

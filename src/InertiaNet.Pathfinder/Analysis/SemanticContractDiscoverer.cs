@@ -201,7 +201,8 @@ internal sealed class SemanticContractDiscoverer
             var count = expression switch { ObjectCreationExpressionSyntax creation => creation.Initializer?.Expressions.Count, ImplicitObjectCreationExpressionSyntax creation => creation.Initializer?.Expressions.Count, _ => null };
             var complete = count == entries.Length;
             var properties = entries.Select(entry => new PropField(entry.Key, MapExpression(entry.Value, usage),
-                IsDeferred(ExpressionType(entry.Value, Semantic(entry.Value.SyntaxTree))), IsDeferred(ExpressionType(entry.Value, Semantic(entry.Value.SyntaxTree))))).ToList();
+                IsDeferred(ExpressionType(entry.Value, Semantic(entry.Value.SyntaxTree))) || HasFactoryModifier(entry.Value, "Defer", "Optional", "Once"),
+                IsDeferred(ExpressionType(entry.Value, Semantic(entry.Value.SyntaxTree))) || HasFactoryModifier(entry.Value, "Defer", "Optional"))).ToList();
             if (!complete) properties = properties.Select(field => field with { TypeScriptType = "unknown" }).ToList();
             return (CollapseDotFields(CombineFields([properties])), !complete);
         }
@@ -210,7 +211,8 @@ internal sealed class SemanticContractDiscoverer
         foreach (var member in Members(type, usage))
         {
             if (Attribute(member.Symbol, "JsonExtensionDataAttribute") is not null && usage is Output or Input) { extension = true; continue; }
-            var explicitType = Attribute(member.Symbol, "InertiaPropTypeAttribute")?.ConstructorArguments.FirstOrDefault().Value as ITypeSymbol;
+            var explicitType = (Attribute(member.Symbol, "InertiaPropTypeAttribute")?.ConstructorArguments.FirstOrDefault().Value as ITypeSymbol)
+                ?.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
             var memberValue = MemberValue(member, expression);
             var handling = Attribute(member.Symbol, "JsonNumberHandlingAttribute") ?? Attribute(type, "JsonNumberHandlingAttribute");
             var numberHandling = handling?.ConstructorArguments.FirstOrDefault().Value is int flags ? (JsonNumberHandling?)flags : null;
@@ -227,7 +229,8 @@ internal sealed class SemanticContractDiscoverer
                 Report(member.Symbol, $"Several CLR members serialize as '{member.Name}'. Use distinct JSON names.", "PATHFINDER222", "error");
                 continue;
             }
-            fields.Add(new(member.Name, mapped, member.Optional, member.Deferred, IsLiteral: true));
+            var deferred = member.Deferred || HasFactoryModifier(memberValue, "Defer", "Optional");
+            fields.Add(new(member.Name, mapped, member.Optional || deferred || HasFactoryModifier(memberValue, "Once"), deferred, IsLiteral: true));
         }
         return (fields, extension);
     }
@@ -276,7 +279,11 @@ internal sealed class SemanticContractDiscoverer
             Report(type, $"Wrapper '{named.Name}' does not expose a value type here; use [InertiaPropType(typeof(...))] or an inferable factory expression.", "PATHFINDER224");
             return "unknown";
         }
-        if (IsFrameworkOpaque(named)) return "unknown";
+        if (IsFrameworkOpaque(named))
+        {
+            if (named.TypeKind == TypeKind.Delegate) Report(named, "A recursive or unresolvable prop-factory return type needs an explicit finite contract.", "PATHFINDER221");
+            return "unknown";
+        }
         if (named.TypeKind == TypeKind.Enum) return MapEnum(named, usage);
         if (usage is Output or Input && Attribute(named, "JsonConverterAttribute") is { } converter) return ConverterType(named, converter, named);
         if (Attribute(named, "JsonPolymorphicAttribute") is not null || Attribute(named, "JsonDerivedTypeAttribute") is not null)
@@ -319,6 +326,11 @@ internal sealed class SemanticContractDiscoverer
         if (expression.IsKind(SyntaxKind.NullLiteralExpression)) return "null";
         if (expression is InvocationExpressionSyntax invocation)
         {
+            // Wrapper modifiers carry configuration (for example Defer's group),
+            // while service factories carry the actual prop value as argument 0.
+            if (invocation.Expression is MemberAccessExpressionSyntax fluent
+                && ExpressionType(fluent.Expression, semantic) is INamedTypeSymbol receiver && IsInertiaWrapper(receiver))
+                return MapExpression(fluent.Expression, usage);
             var name = MethodName(invocation);
             var method = semantic.GetSymbolInfo(invocation).Symbol as IMethodSymbol;
             if ((IsInertiaInvocation(invocation, semantic) && name is "Defer" or "Optional" or "Always" or "Once" or "Merge" or "DeepMerge" or "Scroll")
@@ -575,12 +587,30 @@ internal sealed class SemanticContractDiscoverer
         || type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
     private static bool IsExplicitlyNullable(ITypeSymbol type) => type.NullableAnnotation == NullableAnnotation.Annotated
         || type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
-    private static bool IsDeferred(ITypeSymbol? type) => type is not null && IsInertiaWrapper(type) && type.Name is "DeferProp" or "OptionalProp";
-    private static bool IsOnce(ITypeSymbol type) => IsInertiaWrapper(type) && type.Name == "OnceProp";
+    private static bool IsDeferred(ITypeSymbol? type) => FactoryValue(type) is { } value && IsInertiaWrapper(value) && value.Name is "DeferProp" or "OptionalProp";
+    private static bool IsOnce(ITypeSymbol type) => FactoryValue(type) is { } value && IsInertiaWrapper(value) && value.Name == "OnceProp";
+    private static ITypeSymbol? FactoryValue(ITypeSymbol? type)
+    {
+        for (var depth = 0; depth < 64 && type is INamedTypeSymbol named; depth++)
+        {
+            if (WrapperResult(named) is not { } inner) return named;
+            type = inner;
+        }
+        return null;
+    }
+    private bool HasFactoryModifier(ExpressionSyntax? expression, params string[] names)
+    {
+        while (expression is InvocationExpressionSyntax invocation && IsInertiaInvocation(invocation, Semantic(invocation.SyntaxTree)))
+        {
+            if (names.Contains(MethodName(invocation), StringComparer.Ordinal)) return true;
+            expression = invocation.Expression is MemberAccessExpressionSyntax member ? member.Expression : null;
+        }
+        return false;
+    }
     private static bool IsInertiaWrapper(ITypeSymbol type) => type.ContainingNamespace?.ToDisplayString() == "InertiaNet.Props"
         || type.TypeKind == TypeKind.Error && type.Name is "DeferProp" or "OptionalProp" or "AlwaysProp" or "MergeProp" or "OnceProp" or "ScrollProp";
     private static bool IsFrameworkOpaque(INamedTypeSymbol type) => type.ContainingNamespace.ToDisplayString() is "System.Text.Json" or "System.Text.Json.Nodes" && type.Name is "JsonElement" or "JsonDocument" or "JsonNode" or "JsonObject" or "JsonArray"
-        || type.TypeKind == TypeKind.Delegate && type.DelegateInvokeMethod is null;
+        || type.TypeKind == TypeKind.Delegate;
     private static string? Primitive(INamedTypeSymbol type) => type.SpecialType switch
     {
         SpecialType.System_String or SpecialType.System_Char => "string", SpecialType.System_Boolean => "boolean",
@@ -600,10 +630,23 @@ internal sealed class SemanticContractDiscoverer
     private static bool IsBindingObject(ITypeSymbol type) => type is INamedTypeSymbol named && !IsScalar(type)
         && DictionaryValue(named) is null && CollectionElement(named) is null
         && !(named.ContainingNamespace.ToDisplayString() == "Microsoft.AspNetCore.Http" && named.Name is "IFormFile" or "IFormFileCollection");
-    private static ITypeSymbol? WrapperResult(INamedTypeSymbol type)
+    private static ITypeSymbol? DirectWrapperResult(INamedTypeSymbol type)
         => type.TypeKind == TypeKind.Delegate ? type.DelegateInvokeMethod?.ReturnType
             : type.IsGenericType && (type.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks" && type.Name is "Task" or "ValueTask"
                 || type.ContainingNamespace.ToDisplayString() == "System" && type.Name == "Lazy") ? type.TypeArguments[0] : null;
+    private static ITypeSymbol? WrapperResult(INamedTypeSymbol type)
+    {
+        var result = DirectWrapperResult(type);
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { type };
+        var current = result;
+        for (var depth = 0; depth < 64 && current is not null; depth++)
+        {
+            if (!seen.Add(current)) return null;
+            if (current is not INamedTypeSymbol named || DirectWrapperResult(named) is not { } next) return result;
+            current = next;
+        }
+        return null;
+    }
     private static ITypeSymbol? CollectionElement(INamedTypeSymbol? type)
         => type is null || type.SpecialType == SpecialType.System_String ? null
             : type.AllInterfaces.Append(type).FirstOrDefault(candidate => candidate.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T)?.TypeArguments[0];
