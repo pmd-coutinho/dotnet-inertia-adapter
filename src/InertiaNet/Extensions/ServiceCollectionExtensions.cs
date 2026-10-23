@@ -47,6 +47,8 @@ public static class ServiceCollectionExtensions
         optionsBuilder.Validate(options => options.PropDiagnostics.MaxEntries is > 0 and <= 10000
             && options.PropDiagnostics.SlowPropThreshold >= TimeSpan.Zero,
             "PropDiagnostics requires MaxEntries between 1 and 10000 and a nonnegative SlowPropThreshold.");
+        optionsBuilder.Validate(options => Enum.IsDefined(options.LargeIntegerSerialization),
+            "LargeIntegerSerialization must be Number, String, or BigInt.");
 
         // HttpContextAccessor (idempotent)
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();

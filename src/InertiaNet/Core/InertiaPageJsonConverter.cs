@@ -12,26 +12,34 @@ internal sealed class InertiaPageJsonConverter : JsonConverter<InertiaPage>
 
     public override void Write(Utf8JsonWriter writer, InertiaPage value, JsonSerializerOptions options)
     {
+        var protocolOptions = options;
+        if (options.Converters.OfType<LargeIntegerConverterFactory>().Any(converter => converter.Policy != LargeIntegerSerialization.Number))
+        {
+            protocolOptions = new JsonSerializerOptions(options);
+            for (var index = protocolOptions.Converters.Count - 1; index >= 0; index--)
+                if (protocolOptions.Converters[index] is LargeIntegerConverterFactory) protocolOptions.Converters.RemoveAt(index);
+        }
         writer.WriteStartObject();
 
         writer.WriteString("component", value.Component);
         WriteDictionary(writer, "props", value.Props, options);
         writer.WriteString("url", value.Url);
 
-        WriteOptional(writer, "version", value.Version, options);
-        WriteOptional(writer, "sharedProps", value.SharedProps, options);
-        WriteOptional(writer, "mergeProps", value.MergeProps, options);
-        WriteOptional(writer, "prependProps", value.PrependProps, options);
-        WriteOptional(writer, "deepMergeProps", value.DeepMergeProps, options);
-        WriteOptional(writer, "matchPropsOn", value.MatchPropsOn, options);
-        WriteOptionalDictionary(writer, "deferredProps", value.DeferredProps, options);
-        WriteOptional(writer, "rescuedProps", value.RescuedProps, options);
-        WriteOptionalDictionary(writer, "scrollProps", value.ScrollProps, options);
-        WriteOptionalDictionary(writer, "onceProps", value.OnceProps, options);
+        WriteOptional(writer, "version", value.Version, protocolOptions);
+        WriteOptional(writer, "sharedProps", value.SharedProps, protocolOptions);
+        WriteOptional(writer, "mergeProps", value.MergeProps, protocolOptions);
+        WriteOptional(writer, "prependProps", value.PrependProps, protocolOptions);
+        WriteOptional(writer, "deepMergeProps", value.DeepMergeProps, protocolOptions);
+        WriteOptional(writer, "matchPropsOn", value.MatchPropsOn, protocolOptions);
+        WriteOptionalDictionary(writer, "deferredProps", value.DeferredProps, protocolOptions);
+        WriteOptional(writer, "rescuedProps", value.RescuedProps, protocolOptions);
+        WriteOptionalDictionary(writer, "scrollProps", value.ScrollProps, protocolOptions);
+        WriteOptionalDictionary(writer, "onceProps", value.OnceProps, protocolOptions);
         WriteOptionalDictionary(writer, "flash", value.Flash, options);
-        WriteOptional(writer, "clearHistory", value.ClearHistory, options);
-        WriteOptional(writer, "encryptHistory", value.EncryptHistory, options);
-        WriteOptional(writer, "preserveFragment", value.PreserveFragment, options);
+        WriteOptional(writer, "clearHistory", value.ClearHistory, protocolOptions);
+        WriteOptional(writer, "encryptHistory", value.EncryptHistory, protocolOptions);
+        WriteOptional(writer, "preserveFragment", value.PreserveFragment, protocolOptions);
+        WriteOptional(writer, "preserveBigIntegers", value.PreserveBigIntegers, protocolOptions);
 
         writer.WriteEndObject();
     }
@@ -100,15 +108,16 @@ internal static class InertiaJsonOptions
     };
 
     public static JsonSerializerOptions GetOptions(InertiaOptions? options)
-        => CreateOptions(options?.JsonSerializerOptions, encoder: null);
+        => CreateOptions(options, encoder: null);
 
     public static JsonSerializerOptions GetTagHelperOptions(InertiaOptions? options)
-        => CreateOptions(options?.JsonSerializerOptions, JavaScriptEncoder.Default);
+        => CreateOptions(options, JavaScriptEncoder.Default);
 
     private static JsonSerializerOptions CreateOptions(
-        JsonSerializerOptions? userOptions,
+        InertiaOptions? options,
         JavaScriptEncoder? encoder)
     {
+        var userOptions = options?.JsonSerializerOptions;
         var resolved = userOptions is null
             ? new JsonSerializerOptions(Default)
             : new JsonSerializerOptions(userOptions);
@@ -118,6 +127,9 @@ internal static class InertiaJsonOptions
 
         if (!resolved.Converters.Any(c => c is InertiaPageJsonConverter))
             resolved.Converters.Insert(0, new InertiaPageJsonConverter());
+
+        // Explicit application converters retain precedence over this numeric policy.
+        resolved.Converters.Add(new LargeIntegerConverterFactory(options?.LargeIntegerSerialization ?? LargeIntegerSerialization.Number));
 
         return resolved;
     }

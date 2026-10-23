@@ -82,4 +82,7 @@ public sealed class InertiaPage
     /// Only included in the response when true (v3-only).
     /// </summary>
     public bool? PreserveFragment { get; init; }
+
+    /// <summary>Enables client revival of $bigint markers in props and flash.</summary>
+    public bool? PreserveBigIntegers { get; init; }
 }

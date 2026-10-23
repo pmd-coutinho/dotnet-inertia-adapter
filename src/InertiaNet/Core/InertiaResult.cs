@@ -209,6 +209,7 @@ public sealed class InertiaResult : IActionResult, IResult
             ClearHistory   = _inertiaService.GetClearHistory() ? true : null,
             EncryptHistory = encryptHistory ? true : null,
             PreserveFragment = _inertiaService.GetPreserveFragment() ? true : null,
+            PreserveBigIntegers = options.LargeIntegerSerialization == LargeIntegerSerialization.BigInt ? true : null,
         };
     }
 

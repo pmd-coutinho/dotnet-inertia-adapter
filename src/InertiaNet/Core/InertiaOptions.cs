@@ -68,6 +68,9 @@ public class InertiaOptions
     /// </summary>
     public JsonSerializerOptions? JsonSerializerOptions { get; set; }
 
+    /// <summary>Representation of Int64, UInt64 and BigInteger props/flash. Defaults to JSON numbers.</summary>
+    public LargeIntegerSerialization LargeIntegerSerialization { get; set; }
+
     /// <summary>
      /// Custom exception handler delegate for Inertia responses (v3).
      /// Called when an unhandled exception occurs during Inertia request processing.

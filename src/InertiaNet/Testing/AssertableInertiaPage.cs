@@ -1,5 +1,7 @@
 using InertiaNet.Core;
 using System.Text.Json;
+using System.Globalization;
+using System.Numerics;
 
 namespace InertiaNet.Testing;
 
@@ -10,6 +12,7 @@ namespace InertiaNet.Testing;
 public sealed class AssertableInertiaPage
 {
     private readonly InertiaPage _page;
+    private static readonly JsonSerializerOptions AssertionJsonOptions = InertiaJsonOptions.GetOptions(null);
 
     public AssertableInertiaPage(InertiaPage page) => _page = page;
 
@@ -39,6 +42,38 @@ public sealed class AssertableInertiaPage
             throw new AssertionException($"Prop '{key}' expected value '{expectedValue}', got '{actualValue}'.");
 
         return this;
+    }
+
+    /// <summary>Asserts an exact integer value across numeric, decimal-string and opted-in marker transports.</summary>
+    public AssertableInertiaPage HasBigIntegerProp(string key, BigInteger expected)
+    {
+        AssertBigInteger(_page.Props, key, expected);
+        return this;
+    }
+
+    /// <summary>Asserts an exact integer in flash data without converting it to a floating-point number.</summary>
+    public AssertableInertiaPage HasBigIntegerFlash(string key, BigInteger expected)
+    {
+        if (_page.Flash is null) throw new AssertionException($"Flash data '{key}' not found.");
+        AssertBigInteger(_page.Flash, key, expected);
+        return this;
+    }
+
+    /// <summary>Asserts that the page opts into client BigInt revival.</summary>
+    public AssertableInertiaPage HasPreserveBigIntegers()
+    {
+        if (_page.PreserveBigIntegers != true) throw new AssertionException("Expected preserveBigIntegers to be true.");
+        return this;
+    }
+
+    private void AssertBigInteger(IReadOnlyDictionary<string, object?> source, string key, BigInteger expected)
+    {
+        if (!TryGetValueAtPath(source, key, out var value)) throw new AssertionException($"Integer '{key}' not found.");
+        if (value.ValueKind == JsonValueKind.Object && _page.PreserveBigIntegers == true
+            && value.TryGetProperty("$bigint", out var marker)) value = marker;
+        var digits = value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.GetRawText() : null;
+        if (!BigInteger.TryParse(digits, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var actual) || actual != expected)
+            throw new AssertionException($"Integer '{key}' expected '{expected}', got '{value}'.");
     }
 
     /// <summary>Asserts a prop does NOT exist.</summary>
@@ -253,7 +288,7 @@ public sealed class AssertableInertiaPage
     private static JsonElement ToJsonElement(object? value)
         => value is JsonElement element
             ? element.Clone()
-            : JsonSerializer.SerializeToElement(value, InertiaJsonOptions.Default);
+            : JsonSerializer.SerializeToElement(value, AssertionJsonOptions);
 
     private static bool JsonEquals(JsonElement left, JsonElement right)
     {
