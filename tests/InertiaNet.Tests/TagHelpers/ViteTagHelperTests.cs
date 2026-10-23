@@ -124,6 +124,11 @@ public class ViteTagHelperTests
         var helper = ActivatorUtilities.CreateInstance<ViteInputTagHelper>(services);
         helper.Src = "src/app.ts";
         Render(helper).Should().Contain("assets/app.js");
+        // Razor's activator uses CreateFactory with no explicit constructor arguments.
+        var factory = ActivatorUtilities.CreateFactory(typeof(ViteInputTagHelper), Type.EmptyTypes);
+        var razorHelper = (ViteInputTagHelper)factory(services, []);
+        razorHelper.Src = "src/app.ts";
+        Render(razorHelper).Should().Contain("assets/app.js");
     }
 
     private static string Render(ViteInputTagHelper helper)

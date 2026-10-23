@@ -1,6 +1,7 @@
 using InertiaNet.Core;
 using InertiaNet.Vite;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Options;
 using System.Text.Encodings.Web;
@@ -35,7 +36,8 @@ public sealed class ViteInputTagHelper : TagHelper
     public ViteInputTagHelper(IOptions<ViteOptions> options) : this(options, null) { }
 
     /// <summary>Creates a Vite tag helper using the application's shared manifest cache.</summary>
-    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache)
+    [ActivatorUtilitiesConstructor]
+    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache = null)
     {
         _options = options;
         _cache = cache;
