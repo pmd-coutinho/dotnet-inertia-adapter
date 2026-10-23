@@ -6,7 +6,7 @@ namespace InertiaNet.Analyzers.Tests;
 public class PathfinderMinimalApiAnalyzerTests
 {
     [Fact]
-    public async Task ShouldReportUnsupportedDynamicTemplates_AndMethodGroupHandlers()
+    public async Task ShouldReportDynamicTemplates_WhileAcceptingCrossFileSourceHandlers()
     {
         const string programSource = """
 using Microsoft.AspNetCore.Builder;
@@ -41,7 +41,31 @@ static class ExternalHandlers
             new PathfinderMinimalApiAnalyzer());
 
         diagnostics.Select(diagnostic => diagnostic.Id)
-            .Should().BeEquivalentTo(["PATHFINDER001", "PATHFINDER002"]);
+            .Should().BeEquivalentTo(["PATHFINDER001"]);
+    }
+
+    [Fact]
+    public async Task ShouldUseMapMethodsHandlerPosition_AndDiagnoseDelegateVariables()
+    {
+        const string source = """
+            using System;
+            using Microsoft.AspNetCore.Builder;
+            using Microsoft.AspNetCore.Http;
+            using InertiaNet.Extensions;
+            class Demo
+            {
+                void Map(WebApplication app)
+                {
+                    app.MapMethods("/methods", new[] { "GET", "HEAD" }, Handler);
+                    app.MapInertia("/about", "About");
+                    Func<IResult> dynamicHandler = () => Results.Ok();
+                    app.MapGet("/dynamic-handler", dynamicHandler);
+                }
+                static IResult Handler() => Results.Ok();
+            }
+            """;
+        var diagnostics = await AnalyzerTestHost.GetDiagnosticsAsync(source, new PathfinderMinimalApiAnalyzer());
+        diagnostics.Should().ContainSingle().Which.Id.Should().Be("PATHFINDER002");
     }
 
     [Fact]

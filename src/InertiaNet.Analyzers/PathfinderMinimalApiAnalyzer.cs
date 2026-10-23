@@ -9,7 +9,7 @@ namespace InertiaNet.Analyzers;
 public sealed class PathfinderMinimalApiAnalyzer : DiagnosticAnalyzer
 {
     private static readonly ImmutableHashSet<string> SupportedMapMethods =
-    ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete"];
+    ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete", "MapMethods", "MapInertia"];
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics
         => [InertiaDiagnostics.UnsupportedMinimalApiTemplate, InertiaDiagnostics.UnsupportedMinimalApiHandler];
@@ -44,12 +44,15 @@ public sealed class PathfinderMinimalApiAnalyzer : DiagnosticAnalyzer
                 args[0].GetLocation()));
         }
 
-        var handler = args[1].Expression;
+        if (memberAccess.Name.Identifier.Text == "MapInertia") return;
+        var handlerIndex = memberAccess.Name.Identifier.Text == "MapMethods" ? 2 : 1;
+        if (args.Count <= handlerIndex) return;
+        var handler = args[handlerIndex].Expression;
         if (!IsSupportedHandler(context.SemanticModel, handler))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 InertiaDiagnostics.UnsupportedMinimalApiHandler,
-                args[1].GetLocation()));
+                args[handlerIndex].GetLocation()));
         }
     }
 
@@ -59,13 +62,12 @@ public sealed class PathfinderMinimalApiAnalyzer : DiagnosticAnalyzer
             return true;
 
         var symbolInfo = semanticModel.GetSymbolInfo(handler);
-        var symbol = symbolInfo.Symbol as IMethodSymbol
-            ?? symbolInfo.CandidateSymbols.OfType<IMethodSymbol>().SingleOrDefault();
+        var candidates = semanticModel.GetMemberGroup(handler).OfType<IMethodSymbol>().ToArray();
+        var symbol = symbolInfo.Symbol as IMethodSymbol ?? (candidates.Length == 1 ? candidates[0] : null);
         if (symbol == null)
             return false;
 
         return symbol.DeclaringSyntaxReferences.Any(reference =>
-            reference.SyntaxTree == handler.SyntaxTree &&
             reference.GetSyntax() is MethodDeclarationSyntax or LocalFunctionStatementSyntax);
     }
 }

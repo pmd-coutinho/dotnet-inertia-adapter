@@ -38,8 +38,8 @@ internal static class InertiaDiagnostics
 
     public static readonly DiagnosticDescriptor UnsupportedMinimalApiHandler = new(
         id: "PATHFINDER002",
-        title: "Pathfinder currently supports only lambda handlers",
-        messageFormat: "Pathfinder currently supports only lambda handlers for Minimal API route discovery",
+        title: "Pathfinder cannot resolve this Minimal API handler",
+        messageFormat: "Use a lambda or an unambiguous source method group for Pathfinder discovery",
         category: "InertiaNet.Pathfinder",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
