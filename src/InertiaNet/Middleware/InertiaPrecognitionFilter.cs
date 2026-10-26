@@ -1,7 +1,10 @@
 using InertiaNet.Support;
+using InertiaNet.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace InertiaNet.Middleware;
@@ -14,7 +17,8 @@ public sealed class InertiaPrecognitionFilter : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (!PrecognitionValidation.IsPrecognitive(context.HttpContext.Request))
+        if (!PrecognitionValidation.IsPrecognitive(context.HttpContext.Request)
+            || context.HttpContext.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate?.Invoke(context.HttpContext) == false)
         {
             await next();
             return;

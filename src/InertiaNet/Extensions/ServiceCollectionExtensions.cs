@@ -109,6 +109,7 @@ public static class ServiceCollectionExtensions
         var optionsBuilder = services.AddOptions<ViteOptions>();
         if (configure is not null) optionsBuilder.Configure(configure);
         services.AddMemoryCache();
+        services.AddHttpContextAccessor();
 
         return services;
     }

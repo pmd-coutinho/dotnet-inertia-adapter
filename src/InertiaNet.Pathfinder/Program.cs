@@ -99,7 +99,7 @@ static async Task<(int ExitCode, ProjectSources Sources)> RunGenerationAsync(Pat
     config.InputFiles = inputs;
     foreach (var tree in trees)
     {
-        routes.AddRange(ControllerRouteDiscoverer.Discover(tree));
+        routes.AddRange(ControllerRouteDiscoverer.Discover(tree, project.Compilation.GetSemanticModel(tree)));
         routes.AddRange(MinimalApiRouteDiscoverer.Discover(tree, project.Compilation.GetSemanticModel(tree)));
         if (config.DiscoverWolverine) routes.AddRange(WolverineRouteDiscoverer.Discover(tree));
     }

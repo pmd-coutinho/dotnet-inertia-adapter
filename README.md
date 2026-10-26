@@ -229,6 +229,28 @@ builder.Services.AddInertia<HandleInertiaRequests>();
 app.UseInertia<HandleInertiaRequests>();
 ```
 
+For an application that mixes Inertia pages with other endpoints, restrict the
+middleware and validation filters to the page paths:
+
+```csharp
+builder.Services.AddInertia<HandleInertiaRequests>(options =>
+{
+    options.RequestPredicate = context => context.Request.Path.StartsWithSegments("/app");
+});
+```
+
+The predicate defaults to handling every path. It must include initial HTML
+requests, which have no `X-Inertia` header. Excluded requests skip sharing hooks,
+version checks, Inertia response headers, and Inertia TempData processing. The
+predicate also applies to MVC and explicitly attached Minimal API validation
+and Precognition filters; it does not disable the application's antiforgery or
+authorization middleware.
+
+Empty, unstarted Inertia `200` and `204` responses redirect back by default.
+Set `options.RedirectEmptyResponses = false` to preserve intentional empty
+responses. Standard mutation redirect conversion (`302` to `303`) still applies;
+Precognition responses are always excluded from empty-response redirects.
+
 ### Conditional Props
 
 Use `When()` / `Unless()` to conditionally share props:
@@ -241,7 +263,12 @@ inertia.Unless(user.IsGuest, "notifications", async (sp, ct) =>
 
 ### CSRF/XSRF Token
 
-When `IAntiforgery` is registered, InertiaNet automatically shares an `xsrfToken` prop on every request. Override `ShareCsrfToken` in your middleware subclass to customise or disable:
+When `IAntiforgery` is registered, InertiaNet shares a lazy `xsrfToken` prop.
+The token is generated during page prop resolution, after the handler has run
+and before response headers start. Redirects and unrelated responses do not
+generate a token; partial reloads generate one only when they include this prop.
+Initial HTML pages include it. Override `ShareCsrfToken` in your middleware
+subclass to customise or disable:
 
 ```csharp
 protected override Task ShareCsrfToken(HttpContext context, IInertiaService inertia)
@@ -366,7 +393,7 @@ Add it to your app project like any other analyzer package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Analyzers" Version="3.5.2-alpha.1" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Analyzers" Version="3.5.2-alpha.13" PrivateAssets="all" />
 </ItemGroup>
 ```
 
@@ -388,7 +415,7 @@ dotnet new inertianet-react -n MyReactApp
 dotnet new inertianet-vue -n MyVueApp
 ```
 
-Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current base is 3.5.2; automatic builds use `3.5.2-alpha.<CI run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Use the same published build for package references shown with the local `alpha.1` example.
+Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current base is 3.5.2; automatic builds use `3.5.2-alpha.<CI run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Use the same published build for package references shown with the local `alpha.13` example.
 
 Each starter includes:
 
@@ -564,7 +591,10 @@ inertia.ClearHistory();
 
 ## Validation
 
-`InertiaValidationFilter` automatically serializes `ModelState` errors to TempData when a controller action redirects with invalid state. The middleware restores them as the `errors` prop on the next request:
+`InertiaValidationFilter` automatically serializes `ModelState` errors to TempData
+when a controller action redirects with invalid state on a request carrying
+`X-Inertia`. Ordinary MVC form submissions keep their normal validation behavior.
+The middleware restores the captured errors as the `errors` prop on the next request:
 
 ```csharp
 [HttpPost]
@@ -581,6 +611,9 @@ public async Task<IActionResult> Store([FromBody] CreateUserRequest request)
 ### Minimal API Validation
 
 For Minimal API endpoints, use the endpoint filter and `SetInertiaValidationErrors` extension:
+
+This explicit opt-in also supports ordinary form submissions without `X-Inertia`.
+Both validation filters honor `InertiaOptions.RequestPredicate` when configured.
 
 ```csharp
 app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
@@ -745,6 +778,44 @@ The `vite-input` tag helper:
 - **Production**: reads `wwwroot/build/manifest.json`, resolves the hashed filename, and emits `<script type="module">` for JS entries. It follows static imports for deduplicated stylesheets and module preloads, handles cycles, and leaves dynamic imports unloaded.
 
 `AddViteHelper()` registers a shared parsed-manifest cache, also used for component-existence checks. Every read checks file length and last-write time; deployments invalidate the cache when either changes. Hot mode bypasses it. Set `ViteOptions.CacheManifest = false` if your deployment replaces content while preserving both metadata values.
+
+Production script, stylesheet, and module-preload URLs include the current
+request's `PathBase`. For an app mounted at `/portal`, the default asset prefix
+is `/portal/build/`. Configure Vite's `base` consistently so its generated imports
+and CSS asset references use the same deployment prefix. HMR URLs continue to
+use the hot file's dev-server URL without the application's prefix.
+
+### CSP nonces and integrity hashes
+
+Both Vite helpers accept a request-specific `nonce`:
+
+```razor
+<vite-react-refresh nonce="@(Context.Items["CspNonce"] as string)" />
+<vite-input src="src/app.tsx" nonce="@(Context.Items["CspNonce"] as string)" />
+```
+
+Alternatively, supply the nonce through options. The application generates a
+fresh nonce for each response and uses the same value in its CSP header:
+
+```csharp
+builder.Services.AddViteHelper(options =>
+{
+    options.NonceProvider = context => context.Items["CspNonce"] as string;
+});
+```
+
+An explicit helper nonce overrides the provider. It is propagated to generated
+script and stylesheet tags, including the inline React refresh preamble and
+module preloads. The helpers do not generate a nonce or set a CSP header.
+
+When a manifest entry supplies an `integrity` hash, the matching production
+script, stylesheet, or module preload receives `integrity` and
+`crossorigin="anonymous"`. CSS entries are matched by their output filename,
+including CSS referenced by another chunk. Vite needs a build plugin to generate
+these hashes. Missing hashes emit ordinary tags; no request-time hashing occurs.
+Set `ViteOptions.IntegrityKey` to a custom manifest property, or to `null` to
+disable integrity attributes. Dynamically imported modules remain owned by Vite;
+the helper only applies integrity to tags it emits.
 
 ### Vite config
 

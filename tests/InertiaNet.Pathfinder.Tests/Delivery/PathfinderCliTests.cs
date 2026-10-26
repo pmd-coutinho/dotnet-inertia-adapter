@@ -6,6 +6,38 @@ namespace InertiaNet.Pathfinder.Tests.Delivery;
 
 public class PathfinderCliTests
 {
+    [Fact]
+    public async Task UnresolvedControllerRoutes_WarnAndOmitHelpers_WhileStrictPreservesLastGoodOutput()
+    {
+        using var project = new TemporaryProject();
+        project.File("UsersController.cs", """
+            [Route("users")] public class UsersController {
+                [HttpGet(Name = "users.index")] public object Index() => null;
+            }
+            """);
+        var args = new[] { TemporaryProject.ToolAssembly, "-p", project.Root, "-o", project.PathFor("output"), "--quiet" };
+        var initial = await TemporaryProject.RunAsync(project.Root, args);
+        initial.ExitCode.Should().Be(0, initial.Error);
+        var output = Directory.GetFiles(project.PathFor("output"), "*", SearchOption.AllDirectories)
+            .ToDictionary(path => path, File.ReadAllBytes);
+        project.File("UsersController.cs", """
+            [Route(Unavailable.Prefix)] public class UsersController {
+                [HttpGet(Name = "users.index")] public object Index() => null;
+            }
+            """);
+        var strict = await TemporaryProject.RunAsync(project.Root, [.. args, "--strict", "--diagnostics-json"]);
+        strict.ExitCode.Should().Be(1, strict.Error);
+        JsonDocument.Parse(strict.Error).RootElement.EnumerateArray().Should().Contain(
+            diagnostic => diagnostic.GetProperty("code").GetString() == "PATHFINDER102"
+                && diagnostic.GetProperty("file").GetString() == "UsersController.cs");
+        foreach (var (path, bytes) in output) File.ReadAllBytes(path).Should().Equal(bytes);
+        var permissive = await TemporaryProject.RunAsync(project.Root, args);
+        permissive.ExitCode.Should().Be(0, permissive.Error);
+        permissive.Error.Should().Contain("warning PATHFINDER102");
+        var generated = string.Join('\n', Directory.GetFiles(project.PathFor("output"), "*.ts", SearchOption.AllDirectories).Select(File.ReadAllText));
+        generated.Should().NotContain("users.index").And.NotContain("/users");
+    }
+
     [Theory]
     [InlineData("--unknown")]
     [InlineData("--project")]

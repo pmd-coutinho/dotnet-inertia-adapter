@@ -64,7 +64,7 @@ All publishable packages now use the same resolved package version.
 
 The base is aligned with the reviewed [inertia-laravel v3.5.2 release](https://github.com/inertiajs/inertia-laravel/releases/tag/v3.5.2), rechecked on 2026-10-23. This identifies the server reference release; JavaScript client compatibility is tested independently (currently 3.0.2 and 3.9.1).
 
-Default local builds use `3.5.2-alpha.1`. Successful master CI publishes `3.5.2-alpha.<CI run number>` through the existing workflow. The version base does not assert complete feature parity.
+Default local builds use `3.5.2-alpha.13`. Successful master CI publishes `3.5.2-alpha.<CI run number>` through the existing workflow. The version base does not assert complete feature parity.
 
 ## CI Prerelease Version Format
 

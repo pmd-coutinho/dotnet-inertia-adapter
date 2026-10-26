@@ -9,6 +9,20 @@ namespace InertiaNet.Core;
 public class InertiaOptions
 {
     /// <summary>
+    /// Selects requests handled by the Inertia middleware and validation filters.
+    /// Null (the default) handles every path. Include initial HTML requests as well
+    /// as requests carrying X-Inertia when restricting a mixed application.
+    /// </summary>
+    public Func<HttpContext, bool>? RequestPredicate { get; set; }
+
+    /// <summary>
+    /// Redirect unstarted empty Inertia 200/204 responses back to a page.
+    /// Defaults to true. Set to false to preserve intentional empty responses.
+    /// Precognition responses are always excluded.
+    /// </summary>
+    public bool RedirectEmptyResponses { get; set; } = true;
+
+    /// <summary>
     /// The root Razor view used for the initial (non-Inertia) page load.
     /// Defaults to "App" (Views/Shared/App.cshtml).
     /// </summary>

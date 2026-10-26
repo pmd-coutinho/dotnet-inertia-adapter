@@ -7,6 +7,84 @@ namespace InertiaNet.Pathfinder.Tests.Analysis;
 public class ControllerRouteDiscovererTests
 {
     [Fact]
+    public void SemanticDiscovery_ResolvesCrossFileConstantsAndNamedConstructorArguments()
+    {
+        PathfinderDiagnostics.Clear();
+        var constants = CSharpSyntaxTree.ParseText("""
+            public static class Routes {
+                public const string Prefix = "users";
+                public const string Show = "{id:int}";
+                public const string Name = "users.show";
+            }
+            """, path: "Routes.cs");
+        var tree = CSharpSyntaxTree.ParseText("""
+            using Microsoft.AspNetCore.Mvc;
+            [Route(Routes.Prefix)]
+            public class UsersController : Controller {
+                [HttpGet(template: Routes.Show, Name = Routes.Name)]
+                public object Show(int id) => null;
+            }
+            """, path: "UsersController.cs");
+        var compilation = ProjectCompilationLoader.CreateForSources([tree, constants]);
+        var routes = ControllerRouteDiscoverer.Discover(tree, compilation.GetSemanticModel(tree));
+        routes.Should().ContainSingle().Which.UrlTemplate.Should().Be("/users/{id}");
+        routes[0].RouteName.Should().Be("users.show");
+        routes[0].Parameters.Should().ContainSingle().Which.ClrTypeName.Should().Be("int");
+        PathfinderDiagnostics.Entries.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("[Route(Unknown.Prefix)]", "[HttpGet]", 1)]
+    [InlineData("[Route(\"users\")]", "[HttpGet(Unknown.Template)]", 3)]
+    [InlineData("", "[HttpGet]", 3)]
+    public void UnresolvedRoutes_AreOmittedWithSourceDiagnostics(string classRoute, string methodRoute, int line)
+    {
+        PathfinderDiagnostics.Clear();
+        var tree = CSharpSyntaxTree.ParseText($"{classRoute}\npublic class UsersController {{\n    {methodRoute}\n    public object Index() => null;\n}}", path: "UsersController.cs");
+        var compilation = ProjectCompilationLoader.CreateForSources([tree]);
+        ControllerRouteDiscoverer.Discover(tree, compilation.GetSemanticModel(tree)).Should().BeEmpty();
+        var diagnostic = PathfinderDiagnostics.Entries.Should().ContainSingle().Subject;
+        diagnostic.Code.Should().Be("PATHFINDER102");
+        diagnostic.File.Should().Be("UsersController.cs");
+        diagnostic.Line.Should().Be(line);
+        diagnostic.Message.Should().Contain("omitted");
+    }
+
+    [Theory]
+    [InlineData("", "[HttpGet(\"\")]")]
+    [InlineData("", "[HttpGet(\"/\")]")]
+    [InlineData("[Route(\"\")]", "[HttpGet]")]
+    [InlineData("[Route(\"/\")]", "[HttpGet]")]
+    public void ExplicitRootRoutes_RemainValid(string classRoute, string methodRoute)
+    {
+        PathfinderDiagnostics.Clear();
+        var tree = CSharpSyntaxTree.ParseText($"{classRoute} public class RootController {{ {methodRoute} public object Index() => null; }}");
+        ControllerRouteDiscoverer.Discover(tree).Should().ContainSingle().Which.UrlTemplate.Should().Be("/");
+        PathfinderDiagnostics.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void UnresolvedTemplates_DoNotSuppressIndependentAbsoluteOrSiblingRoutes()
+    {
+        PathfinderDiagnostics.Clear();
+        var tree = CSharpSyntaxTree.ParseText("""
+            [Route(Unknown.Prefix)]
+            public class UsersController {
+                [HttpGet] public object Missing() => null;
+                [HttpGet("~/absolute")] public object Absolute() => null;
+            }
+            [Route("valid")]
+            public class ValidController {
+                [HttpGet(Unknown.Template), HttpGet("literal")]
+                public object Index() => null;
+            }
+            """, path: "Controllers.cs");
+        var routes = ControllerRouteDiscoverer.Discover(tree);
+        routes.Select(route => route.UrlTemplate).Should().Equal("/absolute", "/valid/literal");
+        PathfinderDiagnostics.Entries.Should().HaveCount(2);
+    }
+
+    [Fact]
     public void Discover_ShouldHandleSupportedMvcPatterns()
     {
         const string source = """

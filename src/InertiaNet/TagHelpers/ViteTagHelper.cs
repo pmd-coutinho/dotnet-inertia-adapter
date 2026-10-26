@@ -3,6 +3,7 @@ using InertiaNet.Vite;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Razor.TagHelpers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -29,18 +30,24 @@ public sealed class ViteInputTagHelper : TagHelper
 {
     private readonly IOptions<ViteOptions> _options;
     private readonly IMemoryCache? _cache;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
 
     /// <summary>The Vite entry-point path as declared in <c>vite.config</c>, e.g. <c>src/main.tsx</c>.</summary>
     public string Src { get; set; } = string.Empty;
 
-    public ViteInputTagHelper(IOptions<ViteOptions> options) : this(options, null) { }
+    /// <summary>The current request's CSP nonce, overriding ViteOptions.NonceProvider.</summary>
+    public string? Nonce { get; set; }
 
-    /// <summary>Creates a Vite tag helper using the application's shared manifest cache.</summary>
+    public ViteInputTagHelper(IOptions<ViteOptions> options) : this(options, null, null) { }
+    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache) : this(options, cache, null) { }
+
+    /// <summary>Creates a Vite tag helper using the shared cache and current request.</summary>
     [ActivatorUtilitiesConstructor]
-    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache = null)
+    public ViteInputTagHelper(IOptions<ViteOptions> options, IMemoryCache? cache = null, IHttpContextAccessor? httpContextAccessor = null)
     {
         _options = options;
         _cache = cache;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
@@ -49,13 +56,16 @@ public sealed class ViteInputTagHelper : TagHelper
         output.TagMode = TagMode.StartTagAndEndTag;
 
         var opts = _options.Value;
+        var httpContext = _httpContextAccessor?.HttpContext;
+        var nonce = Nonce ?? (httpContext is null ? null : opts.NonceProvider?.Invoke(httpContext));
+        var pathBase = httpContext?.Request.PathBase.ToUriComponent() ?? string.Empty;
 
         if (IsRunningHot(opts))
         {
             var hotUrl = ReadHotUrl(opts).TrimEnd('/');
-            output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/@vite/client"));
+            output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/@vite/client", ViteTagAttributes.Security(nonce)));
             output.Content.AppendHtml("\n    ");
-            output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/{Src.TrimStart('/')}"));
+            output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/{Src.TrimStart('/')}", ViteTagAttributes.Security(nonce)));
             return;
         }
 
@@ -66,6 +76,17 @@ public sealed class ViteInputTagHelper : TagHelper
                 $"Entry '{Src}' not found in Vite manifest. Make sure it is listed under `build.rollupOptions.input`.");
 
         var file = entry.GetProperty("file").GetString()!;
+        // CSS files may be listed by filename in another chunk's css array.
+        // Index by output filename so their own manifest integrity is preserved.
+        var integrityByFile = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (opts.IntegrityKey is { } integrityKey)
+            foreach (var chunk in manifest.EnumerateObject().Select(property => property.Value))
+                if (chunk.TryGetProperty("file", out var chunkFile) && chunkFile.ValueKind == JsonValueKind.String
+                    && chunk.TryGetProperty(integrityKey, out var integrity) && integrity.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(integrity.GetString()))
+                    integrityByFile[chunkFile.GetString()!] = integrity.GetString()!;
+        string Security(string name) => ViteTagAttributes.Security(nonce, integrityByFile.GetValueOrDefault(name));
+        string Url(string name) => AssetUrl(opts, pathBase, name);
         var styles = new HashSet<string>(StringComparer.Ordinal);
         var visited = new HashSet<string>(StringComparer.Ordinal) { Src };
         var preloads = new HashSet<string>(StringComparer.Ordinal);
@@ -74,7 +95,7 @@ public sealed class ViteInputTagHelper : TagHelper
             if (output.Content.IsModified) output.Content.AppendHtml("\n    ");
             output.Content.AppendHtml(html);
         }
-        void Style(string name) { if (styles.Add(name)) Append(MakeLinkTag(AssetUrl(opts, name))); }
+        void Style(string name) { if (styles.Add(name)) Append(MakeLinkTag(Url(name), Security(name))); }
         void Dependencies(JsonElement chunk)
         {
             if (chunk.TryGetProperty("css", out var css))
@@ -93,10 +114,10 @@ public sealed class ViteInputTagHelper : TagHelper
             }
         }
         if (IsCss(file)) Style(file);
-        else Append(MakeScriptTag(AssetUrl(opts, file)));
+        else Append(MakeScriptTag(Url(file), Security(file)));
         Dependencies(entry);
         foreach (var dependency in preloads)
-            Append($"<link rel=\"modulepreload\" href=\"{HtmlEncoder.Default.Encode(AssetUrl(opts, dependency))}\" />");
+            Append($"<link rel=\"modulepreload\" href=\"{HtmlEncoder.Default.Encode(Url(dependency))}\"{Security(dependency)} />");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -104,14 +125,14 @@ public sealed class ViteInputTagHelper : TagHelper
     private static bool IsCss(string path) =>
         Regex.IsMatch(path, @"\.(css|less|sass|scss|styl|stylus|pcss|postcss)$", RegexOptions.IgnoreCase);
 
-    private static string MakeScriptTag(string src) =>
-        $"<script type=\"module\" src=\"{HtmlEncoder.Default.Encode(src)}\"></script>";
+    private static string MakeScriptTag(string src, string attributes) =>
+        $"<script type=\"module\" src=\"{HtmlEncoder.Default.Encode(src)}\"{attributes}></script>";
 
-    private static string MakeLinkTag(string href) =>
-        $"<link rel=\"stylesheet\" href=\"{HtmlEncoder.Default.Encode(href)}\" />";
+    private static string MakeLinkTag(string href, string attributes) =>
+        $"<link rel=\"stylesheet\" href=\"{HtmlEncoder.Default.Encode(href)}\"{attributes} />";
 
-    private static string AssetUrl(ViteOptions opts, string file) =>
-        $"/{opts.BuildDirectory.Trim('/')}/{file.TrimStart('/')}";
+    private static string AssetUrl(ViteOptions opts, string pathBase, string file) =>
+        $"{pathBase}/{opts.BuildDirectory.Trim('/')}/{file.TrimStart('/')}";
 
     private static string BuildPath(ViteOptions opts, string file) =>
         Path.Combine(opts.PublicDirectory, opts.BuildDirectory, file);
@@ -141,8 +162,19 @@ public sealed class ViteInputTagHelper : TagHelper
 public sealed class ViteReactRefreshTagHelper : TagHelper
 {
     private readonly IOptions<ViteOptions> _options;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
 
-    public ViteReactRefreshTagHelper(IOptions<ViteOptions> options) => _options = options;
+    /// <summary>The current request's CSP nonce, overriding ViteOptions.NonceProvider.</summary>
+    public string? Nonce { get; set; }
+
+    public ViteReactRefreshTagHelper(IOptions<ViteOptions> options) : this(options, null) { }
+
+    [ActivatorUtilitiesConstructor]
+    public ViteReactRefreshTagHelper(IOptions<ViteOptions> options, IHttpContextAccessor? httpContextAccessor = null)
+    {
+        _options = options;
+        _httpContextAccessor = httpContextAccessor;
+    }
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
@@ -158,15 +190,28 @@ public sealed class ViteReactRefreshTagHelper : TagHelper
         var hotUrl = File.ReadAllText(hotFilePath).Trim().TrimEnd('/');
 
         var refreshUrl = HtmlEncoder.Default.Encode($"{hotUrl}/@react-refresh");
+        var httpContext = _httpContextAccessor?.HttpContext;
+        var nonce = Nonce ?? (httpContext is null ? null : opts.NonceProvider?.Invoke(httpContext));
 
         // The standard React refresh preamble — mirrors what laravel-vite-plugin injects
         output.Content.AppendHtml(
-            $"<script type=\"module\">\n" +
+            $"<script type=\"module\"{ViteTagAttributes.Security(nonce)}>\n" +
             $"  import RefreshRuntime from '{refreshUrl}';\n" +
             "  RefreshRuntime.injectIntoGlobalHook(window);\n" +
             "  window.$RefreshReg$ = () => {};\n" +
             "  window.$RefreshSig$ = () => (type) => type;\n" +
             "  window.__vite_plugin_react_preamble_installed__ = true;\n" +
             "</script>");
+    }
+}
+
+internal static class ViteTagAttributes
+{
+    public static string Security(string? nonce, string? integrity = null)
+    {
+        var attributes = string.IsNullOrEmpty(nonce) ? string.Empty : $" nonce=\"{HtmlEncoder.Default.Encode(nonce)}\"";
+        if (!string.IsNullOrEmpty(integrity))
+            attributes += $" integrity=\"{HtmlEncoder.Default.Encode(integrity)}\" crossorigin=\"anonymous\"";
+        return attributes;
     }
 }

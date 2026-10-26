@@ -1,4 +1,5 @@
 using FluentAssertions;
+using InertiaNet.Core;
 using InertiaNet.Middleware;
 using InertiaNet.Support;
 using InertiaNet.Tests.Helpers;
@@ -20,10 +21,13 @@ public class InertiaValidationFilterTests
         IActionResult result,
         ModelStateDictionary? modelState = null,
         FakeTempDataFactory? tempDataFactory = null,
-        Dictionary<string, string>? headers = null)
+        Dictionary<string, string>? headers = null,
+        Action<InertiaOptions>? configure = null)
     {
+        headers ??= new() { [HeaderNames.Inertia] = "true" };
         var httpContext = HttpContextHelper.Create(headers: headers, configureServices: services =>
         {
+            if (configure is not null) services.Configure(configure);
             if (tempDataFactory is not null)
                 services.AddSingleton<ITempDataDictionaryFactory>(tempDataFactory);
         });
@@ -99,7 +103,7 @@ public class InertiaValidationFilterTests
             new RedirectResult("/create"),
             modelState,
             tempDataFactory,
-            headers: new Dictionary<string, string> { ["X-Inertia-Error-Bag"] = "loginForm" });
+            headers: new Dictionary<string, string> { ["X-Inertia"] = "true", ["X-Inertia-Error-Bag"] = "loginForm" });
 
         var filter = new InertiaValidationFilter();
         await filter.OnResultExecutionAsync(context, () =>
@@ -107,6 +111,27 @@ public class InertiaValidationFilterTests
                 context, new List<IFilterMetadata>(), context.Result, controller: null!)));
 
         tempDataFactory.TempData[SessionKeys.ErrorBag].Should().Be("loginForm");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NonInertiaOrExcludedRequests_DoNotCaptureMvcErrors(bool excluded)
+    {
+        var data = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Email", "Required");
+        var context = CreateResultContext(new RedirectResult("/form"), modelState, data,
+            headers: excluded ? new() { [HeaderNames.Inertia] = "true" } : new(),
+            configure: options => options.RequestPredicate = _ => !excluded);
+        var nextCalled = false;
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+        {
+            nextCalled = true;
+            return Task.FromResult(new ResultExecutedContext(context, [], context.Result, null!));
+        });
+        nextCalled.Should().BeTrue();
+        data.TempData.Should().BeEmpty();
     }
 
     [Fact]

@@ -31,16 +31,51 @@ public class InertiaMiddlewareTests
         string method = "GET",
         string path = "/",
         Dictionary<string, string>? headers = null,
-        FakeTempDataFactory? tempDataFactory = null)
+        FakeTempDataFactory? tempDataFactory = null,
+        Action<InertiaOptions>? configure = null)
     {
         return HttpContextHelper.Create(method, path, headers, services =>
         {
             services.AddOptions<InertiaOptions>();
+            if (configure is not null) services.Configure(configure);
             services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             services.AddScoped<IInertiaService, InertiaService>();
             if (tempDataFactory is not null)
                 services.AddSingleton<ITempDataDictionaryFactory>(tempDataFactory);
         });
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(204)]
+    public async Task EmptyResponse_CanBePreservedWithoutChangingRedirectNormalization(int status)
+    {
+        var context = CreateContextWithInertiaServices("POST", "/submit", new() { ["X-Inertia"] = "true" },
+            configure: options => options.RedirectEmptyResponses = false);
+        await new InertiaMiddleware(ctx => { ctx.Response.StatusCode = status; return Task.CompletedTask; }).InvokeAsync(context);
+        context.Response.StatusCode.Should().Be(status);
+        context.Response.Headers.Should().NotContainKey("Location");
+    }
+
+    [Fact]
+    public async Task ExcludedRequest_SkipsVersionHooksHeadersAndTransientState()
+    {
+        var data = new FakeTempDataFactory();
+        data.TempData[SessionKeys.ValidationErrors] = "{\"email\":[\"Required\"]}";
+        var context = CreateContextWithInertiaServices(headers: new() { ["X-Inertia"] = "true", ["X-Inertia-Version"] = "old" },
+            tempDataFactory: data, configure: options =>
+            {
+                options.RequestPredicate = _ => false;
+                options.Version = () => throw new InvalidOperationException("Version hook must not run");
+            });
+        var called = false;
+        await new InertiaMiddleware(ctx => { called = true; ctx.Response.StatusCode = 204; return Task.CompletedTask; }).InvokeAsync(context);
+        called.Should().BeTrue();
+        context.Response.StatusCode.Should().Be(204);
+        context.Response.Headers.Should().NotContainKey("Vary");
+        context.Items.Should().BeEmpty();
+        context.RequestServices.GetRequiredService<IInertiaService>().GetSharedProps().Should().BeEmpty();
+        data.TempData.Peek(SessionKeys.ValidationErrors).Should().NotBeNull();
     }
 
     [Fact]
@@ -67,7 +102,7 @@ public class InertiaMiddlewareTests
         var context = CreateContextWithInertiaServices("POST", "/submit", new()
         {
             ["X-Inertia"] = "true"
-        });
+        }, configure: options => options.RedirectEmptyResponses = false);
 
         RequestDelegate next = ctx =>
         {

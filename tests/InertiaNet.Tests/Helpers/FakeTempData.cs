@@ -4,39 +4,29 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 namespace InertiaNet.Tests.Helpers;
 
 /// <summary>
-/// In-memory ITempDataDictionary for unit tests. No session required.
+/// Framework TempData dictionary with an in-memory provider. Reads, Keep, Peek,
+/// Remove and Save use the same semantics as production. No session required.
 /// </summary>
-public sealed class FakeTempData : ITempDataDictionary
+public sealed class FakeTempData : TempDataDictionary
 {
-    private readonly Dictionary<string, object?> _data = new();
+    private readonly MemoryTempDataProvider _provider;
 
-    public object? this[string key]
+    public FakeTempData() : this(new MemoryTempDataProvider()) { }
+    private FakeTempData(MemoryTempDataProvider provider) : base(new DefaultHttpContext(), provider) => _provider = provider;
+
+    /// <summary>Completes this request and loads its saved state in a fresh dictionary.</summary>
+    public FakeTempData NextRequest()
     {
-        get => _data.TryGetValue(key, out var v) ? v : null;
-        set => _data[key] = value;
+        Save();
+        return new FakeTempData(_provider);
     }
 
-    public int Count => _data.Count;
-    public bool IsReadOnly => false;
-    public ICollection<string> Keys => _data.Keys;
-    public ICollection<object?> Values => _data.Values;
-
-    public void Add(string key, object? value) => _data[key] = value;
-    public void Add(KeyValuePair<string, object?> item) => _data[item.Key] = item.Value;
-    public void Clear() => _data.Clear();
-    public bool Contains(KeyValuePair<string, object?> item) => _data.Contains(item);
-    public bool ContainsKey(string key) => _data.ContainsKey(key);
-    public void CopyTo(KeyValuePair<string, object?>[] array, int arrayIndex) => ((ICollection<KeyValuePair<string, object?>>)_data).CopyTo(array, arrayIndex);
-    public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => _data.GetEnumerator();
-    public void Keep() { }
-    public void Keep(string key) { }
-    public void Load() { }
-    public object? Peek(string key) => _data.TryGetValue(key, out var v) ? v : null;
-    public bool Remove(string key) => _data.Remove(key);
-    public bool Remove(KeyValuePair<string, object?> item) => _data.Remove(item.Key);
-    public void Save() { }
-    public bool TryGetValue(string key, out object? value) => _data.TryGetValue(key, out value);
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _data.GetEnumerator();
+    private sealed class MemoryTempDataProvider : ITempDataProvider
+    {
+        private Dictionary<string, object> _stored = new(StringComparer.Ordinal);
+        public IDictionary<string, object> LoadTempData(HttpContext context) => new Dictionary<string, object>(_stored, StringComparer.Ordinal);
+        public void SaveTempData(HttpContext context, IDictionary<string, object> values) => _stored = new(values, StringComparer.Ordinal);
+    }
 }
 
 /// <summary>

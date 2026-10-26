@@ -1,8 +1,10 @@
 using InertiaNet.Extensions;
+using InertiaNet.Core;
 using InertiaNet.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace InertiaNet.Middleware;
@@ -33,6 +35,7 @@ public sealed class InertiaValidationEndpointFilter : IEndpointFilter
         var result = await next(context);
 
         if (result is IResult httpResult
+            && context.HttpContext.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate?.Invoke(context.HttpContext) != false
             && context.HttpContext.Items.TryGetValue(ValidationErrorsKey, out var errorsObj)
             && errorsObj is Dictionary<string, string[]> errors
             && errors.Count > 0

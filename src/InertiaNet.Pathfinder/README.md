@@ -89,6 +89,15 @@ When a project is supplied, Pathfinder uses its evaluated `Compile` items, linke
 
 Diagnostics are written to stderr even with `--quiet`. `--strict` fails before writing output if discovery reports any warning. `--check` compares staged output without modifying files. Exit codes are `0` for success/current output, `1` for stale output or discovery failures, and `2` for invalid arguments, project evaluation or output failures. `--diagnostics-json` emits a JSON diagnostic array with `code`, `file`, `line`, `message`, and `severity`.
 
+Controller attribute templates and route names support string literals and
+resolvable compile-time string constants, including constants from other source
+files. If a template or required route metadata cannot be resolved, Pathfinder
+reports `PATHFINDER102` with its source location and omits the dependent helper.
+An action with only `[HttpGet]` and no class attribute template also produces this
+warning because conventional routing cannot be inferred. Explicit `/` and empty
+attribute templates still generate root routes. Use `--strict` to fail on these
+warnings while preserving the last generated output.
+
 Generated output is staged before committing. Pathfinder tracks owned paths in `.pathfinder-manifest.json`, preserves unrelated files, removes only stale owned files, and keeps unchanged modules' timestamps. Commit failures restore prior file content and timestamps. Keep `.pathfinder-files`, `.pathfinder-inputs`, and `.pathfinder.stamp` with the generated directory for build integration. Existing conflicting files are protected; use `--adopt` once when migrating a legacy Pathfinder output directory, after checking that the conflicting paths are generated files. `--no-clean` retains stale owned files.
 
 ### 2. Import and use in your frontend
@@ -727,7 +736,7 @@ dotnet tool restore
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="3.5.2-alpha.1" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="3.5.2-alpha.13" PrivateAssets="all" />
 </ItemGroup>
 ```
 

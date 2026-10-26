@@ -4,6 +4,7 @@ using InertiaNet.Core;
 using InertiaNet.Extensions;
 using InertiaNet.TagHelpers;
 using InertiaNet.Vite;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +14,85 @@ namespace InertiaNet.Tests.TagHelpers;
 
 public class ViteTagHelperTests
 {
+    [Fact]
+    public void Production_PropagatesPathBaseNonceAndPerAssetIntegrityThroughDependencies()
+    {
+        using var fixture = new Fixture();
+        fixture.Manifest("""
+            {
+              "src/app.ts":{"file":"assets/app.js","integrity":"sha384-app","css":["assets/app.css"],"imports":["_shared.js"]},
+              "_shared.js":{"file":"assets/shared.js","integrity":"sha384-shared","css":["assets/shared.css","assets/app.css"]},
+              "_app.css":{"file":"assets/app.css","integrity":"sha384-app-css"},
+              "_shared.css":{"file":"assets/shared.css","integrity":"sha384-shared-css"}
+            }
+            """);
+        var context = new DefaultHttpContext();
+        context.Request.PathBase = "/portal";
+        var html = fixture.Render(context, "request\"<nonce");
+        html.Should().Contain("src=\"/portal/build/assets/app.js\"")
+            .And.Contain("href=\"/portal/build/assets/app.css\"")
+            .And.Contain("href=\"/portal/build/assets/shared.css\"")
+            .And.Contain("rel=\"modulepreload\" href=\"/portal/build/assets/shared.js\"")
+            .And.Contain("integrity=\"sha384-app\"")
+            .And.Contain("integrity=\"sha384-shared\"")
+            .And.Contain("integrity=\"sha384-app-css\"")
+            .And.Contain("integrity=\"sha384-shared-css\"");
+        html.Split("nonce=\"request&quot;&lt;nonce\"").Should().HaveCount(5);
+        html.Split("crossorigin=\"anonymous\"").Should().HaveCount(5);
+        html.Split("assets/app.css").Should().HaveCount(2);
+        html.Should().NotContain("/portal/portal/");
+    }
+
+    [Fact]
+    public void Integrity_IsOptionalConfigurableAndHtmlEncoded()
+    {
+        using var fixture = new Fixture();
+        fixture.Manifest("""{"src/app.ts":{"file":"app.js","sri":"sha384-\"<hash"}}""");
+        fixture.Render().Should().NotContain("integrity=").And.NotContain("crossorigin=");
+        fixture.Options.IntegrityKey = "sri";
+        fixture.Render().Should().Contain("integrity=\"sha384-&quot;&lt;hash\" crossorigin=\"anonymous\"");
+        fixture.Options.IntegrityKey = null;
+        fixture.Render().Should().NotContain("integrity=").And.NotContain("crossorigin=");
+    }
+
+    [Fact]
+    public void NonceProvider_UsesTheCurrentRequest_AndExplicitNonceTakesPrecedence()
+    {
+        using var fixture = new Fixture();
+        fixture.Manifest("""{"src/app.ts":{"file":"app.js"}}""");
+        fixture.Options.NonceProvider = context => (string?)context.Items["nonce"];
+        var first = new DefaultHttpContext();
+        first.Items["nonce"] = "first";
+        var second = new DefaultHttpContext();
+        second.Items["nonce"] = "second";
+        fixture.Render(first).Should().Contain("nonce=\"first\"");
+        fixture.Render(second).Should().Contain("nonce=\"second\"").And.NotContain("first");
+        fixture.Render(second, "explicit").Should().Contain("nonce=\"explicit\"").And.NotContain("second");
+    }
+
+    [Fact]
+    public void HotMode_NoncesBothModulesAndReactPreamble_WithoutPrefixingTheDevServer()
+    {
+        using var fixture = new Fixture();
+        File.WriteAllText(Path.Combine(fixture.Root, "hot"), "http://localhost:5173/");
+        var context = new DefaultHttpContext();
+        context.Request.PathBase = "/portal";
+        context.Items["nonce"] = "dev-nonce";
+        fixture.Options.NonceProvider = ctx => (string?)ctx.Items["nonce"];
+        var html = fixture.Render(context);
+        html.Split("nonce=\"dev-nonce\"").Should().HaveCount(3);
+        html.Should().Contain("http://localhost:5173/@vite/client")
+            .And.Contain("http://localhost:5173/src/app.ts")
+            .And.NotContain("/portal").And.NotContain("integrity=");
+        var refresh = new ViteReactRefreshTagHelper(Options.Create(fixture.Options), new HttpContextAccessor { HttpContext = context });
+        Render(refresh).Should().Contain("<script type=\"module\" nonce=\"dev-nonce\">")
+            .And.Contain("http://localhost:5173/@react-refresh");
+        refresh.Nonce = "explicit\"nonce";
+        Render(refresh).Should().Contain("nonce=\"explicit&quot;nonce\"");
+        File.Delete(Path.Combine(fixture.Root, "hot"));
+        Render(refresh).Should().BeEmpty();
+    }
+
     [Fact]
     public void Production_TraversesStaticImports_DeduplicatesCssAndPreloads_AndStopsCycles()
     {
@@ -121,6 +201,8 @@ public class ViteTagHelperTests
         using var fixture = new Fixture();
         fixture.Manifest("""{"src/app.ts":{"file":"assets/app.js"}}""");
         using var services = new ServiceCollection().AddViteHelper(options => options.PublicDirectory = fixture.Root).BuildServiceProvider();
+        services.GetRequiredService<IHttpContextAccessor>().HttpContext = new DefaultHttpContext();
+        services.GetRequiredService<IHttpContextAccessor>().HttpContext!.Request.PathBase = "/portal";
         var helper = ActivatorUtilities.CreateInstance<ViteInputTagHelper>(services);
         helper.Src = "src/app.ts";
         Render(helper).Should().Contain("assets/app.js");
@@ -128,10 +210,12 @@ public class ViteTagHelperTests
         var factory = ActivatorUtilities.CreateFactory(typeof(ViteInputTagHelper), Type.EmptyTypes);
         var razorHelper = (ViteInputTagHelper)factory(services, []);
         razorHelper.Src = "src/app.ts";
-        Render(razorHelper).Should().Contain("assets/app.js");
+        Render(razorHelper).Should().Contain("src=\"/portal/build/assets/app.js\"");
+        var refreshFactory = ActivatorUtilities.CreateFactory(typeof(ViteReactRefreshTagHelper), Type.EmptyTypes);
+        Render((ViteReactRefreshTagHelper)refreshFactory(services, [])).Should().BeEmpty();
     }
 
-    private static string Render(ViteInputTagHelper helper)
+    private static string Render(TagHelper helper)
     {
         var output = new TagHelperOutput("vite-input", [], (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
         helper.Process(new TagHelperContext([], new Dictionary<object, object>(), "test"), output);
@@ -145,7 +229,9 @@ public class ViteTagHelperTests
         public ViteOptions Options { get; }
         public Fixture() { Options = new() { PublicDirectory = Root }; Directory.CreateDirectory(Path.Combine(Root, "build")); }
         public void Manifest(string json) => File.WriteAllText(ManifestPath, json);
-        public string Render() => ViteTagHelperTests.Render(new ViteInputTagHelper(Microsoft.Extensions.Options.Options.Create(Options), Cache) { Src = "src/app.ts" });
+        public string Render(HttpContext? context = null, string? nonce = null) => ViteTagHelperTests.Render(
+            new ViteInputTagHelper(Microsoft.Extensions.Options.Options.Create(Options), Cache, new HttpContextAccessor { HttpContext = context })
+            { Src = "src/app.ts", Nonce = nonce });
         public void Dispose() { Cache.Dispose(); Directory.Delete(Root, true); }
     }
 }

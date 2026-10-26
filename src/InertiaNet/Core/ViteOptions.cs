@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace InertiaNet.Core;
 
 /// <summary>
@@ -5,6 +7,20 @@ namespace InertiaNet.Core;
 /// </summary>
 public class ViteOptions
 {
+    /// <summary>
+    /// Supplies the current request's CSP nonce for generated script and style tags.
+    /// Use the same nonce in the application's Content-Security-Policy header.
+    /// A helper's explicit nonce attribute takes precedence. Null emits no nonce.
+    /// </summary>
+    public Func<HttpContext, string?>? NonceProvider { get; set; }
+
+    /// <summary>
+    /// Manifest property containing build-time SRI hashes. Defaults to "integrity".
+    /// Set to null to disable integrity attributes. Vite needs a build plugin to
+    /// produce these hashes; InertiaNet does not calculate them during requests.
+    /// </summary>
+    public string? IntegrityKey { get; set; } = "integrity";
+
     /// <summary>
     /// Cache parsed manifests, checking file length and last-write time on every read.
     /// Defaults to true. Disable when a deployment preserves both values while replacing content.

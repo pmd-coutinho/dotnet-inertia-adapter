@@ -8,8 +8,8 @@ Razor helpers emit the Inertia app container, page data, SSR head/body content, 
 
 - `InertiaTagHelper` targets `<inertia />`; `Id` defaults to `app`.
 - `InertiaHeadTagHelper` targets `<inertia-head />`.
-- `ViteInputTagHelper` targets `<vite-input src="..." />` and accepts Vite options plus an optional memory cache.
-- `ViteReactRefreshTagHelper` targets `<vite-react-refresh />`.
+- `ViteInputTagHelper` targets `<vite-input src="..." />` and accepts Vite options, an optional memory cache, and the current HTTP context accessor.
+- `ViteReactRefreshTagHelper` targets `<vite-react-refresh />`. Both Vite helpers accept an explicit `Nonce` or use `ViteOptions.NonceProvider` for the current request.
 
 ## Invariants
 
@@ -19,6 +19,8 @@ Razor helpers emit the Inertia app container, page data, SSR head/body content, 
 - SSR head/body are inserted as HTML supplied by the renderer.
 - Hot mode emits the Vite client and requested module from the hot URL. Production requires matching manifest entries and traverses static imports while deduplicating CSS, preloads, and visited entries.
 - Generated asset URLs are HTML-encoded. The React refresh preamble must appear before the Vite input during development and emits nothing without a hot file.
+- Production asset URLs include `Request.PathBase`; dev-server URLs do not. Vite's frontend build base must match the deployment prefix.
+- Nonces propagate to scripts, stylesheets, preloads, and the React preamble. A matching manifest asset's optional `IntegrityKey` (default `integrity`) supplies SRI plus `crossorigin="anonymous"`. CSS integrity is looked up by output filename. Missing hashes remain optional; null `IntegrityKey` disables SRI.
 
 ## Side Effects
 

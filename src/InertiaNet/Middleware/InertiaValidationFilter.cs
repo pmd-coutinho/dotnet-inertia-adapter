@@ -1,9 +1,11 @@
 using InertiaNet.Extensions;
+using InertiaNet.Core;
 using InertiaNet.Support;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace InertiaNet.Middleware;
@@ -17,7 +19,9 @@ public sealed class InertiaValidationFilter : IAsyncResultFilter
 {
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
-        if (!context.ModelState.IsValid && IsRedirectResult(context.Result))
+        if (context.HttpContext.Request.IsInertia()
+            && context.HttpContext.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate?.Invoke(context.HttpContext) != false
+            && !context.ModelState.IsValid && IsRedirectResult(context.Result))
         {
             var tempDataFactory = context.HttpContext.RequestServices
                 .GetService<ITempDataDictionaryFactory>();

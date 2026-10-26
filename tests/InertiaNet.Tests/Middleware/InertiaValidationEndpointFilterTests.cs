@@ -1,5 +1,6 @@
 using FluentAssertions;
 using InertiaNet.Extensions;
+using InertiaNet.Core;
 using InertiaNet.Middleware;
 using InertiaNet.Support;
 using InertiaNet.Tests.Helpers;
@@ -15,6 +16,25 @@ namespace InertiaNet.Tests.Middleware;
 
 public class InertiaValidationEndpointFilterTests
 {
+    [Fact]
+    public async Task ExcludedRequest_DoesNotPersistExplicitErrors_AndStillRunsHandler()
+    {
+        var data = new FakeTempDataFactory();
+        var context = HttpContextHelper.Create(configureServices: services =>
+        {
+            services.AddSingleton<ITempDataDictionaryFactory>(data);
+            services.Configure<InertiaOptions>(options => options.RequestPredicate = _ => false);
+        });
+        var redirect = Results.Redirect("/form");
+        var result = await new InertiaValidationEndpointFilter().InvokeAsync(new DefaultEndpointFilterInvocationContext(context), _ =>
+        {
+            context.SetInertiaValidationErrors(new Dictionary<string, string[]> { ["email"] = ["Required"] });
+            return ValueTask.FromResult<object?>(redirect);
+        });
+        result.Should().BeSameAs(redirect);
+        data.TempData.Should().BeEmpty();
+    }
+
     private static DefaultHttpContext CreateContextWithTempData(FakeTempDataFactory tempDataFactory)
     {
         return HttpContextHelper.Create("POST", "/submit", configureServices: services =>

@@ -26,6 +26,7 @@ The scoped service and MVC/Minimal API result coordinate props, protocol pages, 
 - SSR applies only to HTML rendering through a registered gateway, after combining global and request-local exclusions. Page and SSR state are stored in request items for Razor helpers.
 - `Location` returns `409` with `X-Inertia-Location` for an active Inertia request, otherwise a standard redirect. `WithoutSsr()` without paths records the current request path.
 - Defaults include root view `App`, disabled SSR, a three-second SSR timeout, disabled page-file checks, disabled diagnostics, and enabled Vite manifest caching.
+- `RequestPredicate` defaults to every path and scopes middleware plus validation/Precognition filters. `RedirectEmptyResponses` defaults to true and can preserve empty responses when disabled. Vite supports request-local `NonceProvider` and optional build-time `IntegrityKey` metadata.
 - Prefetch sets private cache-control using a parsed client duration or the configured default. Custom exception handling accepts `IResult`, `IActionResult`, or `null`, prevents recursive handling, and preserves caller cancellation.
 
 ## Side Effects

@@ -10,6 +10,16 @@ Strategy lives in [ROADMAP.md](ROADMAP.md); detailed implementation evidence liv
 - [x] Complete installed-package/template checks and final regression runs.
 - [x] Complete the public documentation/example audit and align the version prefix to Laravel v3.5.2.
 
-Publication follows the completed push through [CI](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/ci.yml) and [automatic NuGet publishing](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/publish-prerelease.yml). Those live results are authoritative for each release; local package checks use `3.5.2-alpha.1`, while CI assigns `3.5.2-alpha.<CI run>`.
+Publication follows the completed push through [CI](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/ci.yml) and [automatic NuGet publishing](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/publish-prerelease.yml). Those live results are authoritative for each release; local package checks use `3.5.2-alpha.13`, while CI assigns `3.5.2-alpha.<CI run>`.
+
+## Audit follow-up (2026-10-26)
+
+- [x] Scope automatic MVC validation to Inertia requests and add optional request predicates.
+- [x] Make CSRF tokens lazy and add an opt-out for empty-response redirects while preserving the default.
+- [x] Support Vite PathBase, CSP nonces, and optional manifest integrity hashes.
+- [x] Use framework TempData semantics in tests and stop retaining unrelated application values.
+- [x] Resolve controller route constants and warn instead of generating unresolved URLs.
+- [x] Verify runtime, Pathfinder, and generated TypeScript contracts; build all supported framework assets.
+- [x] Advance the local prerelease version to `3.5.2-alpha.13` for the next CI publication.
 
 Supported runtime tests execute on .NET 8, 9 and 10. TypeScript/client fixtures pin Inertia 3.0.2 and 3.9.1; the playground uses 3.9.1. BigInt marker revival is verified with 3.9.1, while string transport is verified with both clients.

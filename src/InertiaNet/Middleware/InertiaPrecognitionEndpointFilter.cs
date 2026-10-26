@@ -1,8 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
+using InertiaNet.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace InertiaNet.Middleware;
 
@@ -12,7 +14,9 @@ public sealed class InertiaPrecognitionEndpointFilter(MethodInfo handler) : IEnd
     /// <inheritdoc />
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        if (!PrecognitionValidation.IsPrecognitive(context.HttpContext.Request)) return await next(context);
+        if (!PrecognitionValidation.IsPrecognitive(context.HttpContext.Request)
+            || context.HttpContext.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate?.Invoke(context.HttpContext) == false)
+            return await next(context);
 
         var errors = new Dictionary<string, List<string>>();
         var parameters = handler.GetParameters();

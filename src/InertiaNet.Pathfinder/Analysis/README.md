@@ -10,7 +10,7 @@ All analysis types are assembly-internal. Their public members are implementatio
 
 | Boundary | Contract |
 | --- | --- |
-| `ControllerRouteDiscoverer.Discover(tree)` | Discovers attribute-routed controller actions as `List<RouteInfo>`. |
+| `ControllerRouteDiscoverer.Discover(tree, semantic?)` | Discovers attribute-routed controller actions as `List<RouteInfo>`, resolving supported string constants with the semantic model. |
 | `MinimalApiRouteDiscoverer.Discover(tree, semantic?)` | Discovers statically resolvable Minimal API registrations, including `MapInertia`. |
 | `WolverineRouteDiscoverer.Discover(tree)` | Optional route discovery selected by the CLI's Wolverine switch. |
 | `SemanticContractDiscoverer(...).Discover(trees, routes)` | Returns `Routes`, `Enums`, `Models`, `Pages`, and `SharedProps` for generation. |
@@ -30,6 +30,7 @@ The contract records are `RouteInfo`/`RouteParameter`, `EnumInfo`/`EnumMember`, 
 
 - Analysis builds compilations without loading or executing application assemblies. Circular project references fail; missing referenced source inputs and targeting packs produce diagnostics.
 - Unresolved Minimal API templates or inline group prefixes are skipped with diagnostics. Supported registration names include `MapGet`, `MapPost`, `MapPut`, `MapPatch`, `MapDelete`, `MapMethods`, and `MapInertia`.
+- MVC route templates and names can use resolvable compile-time string constants. Unresolved controller templates/metadata or conventional actions with no attribute template emit `PATHFINDER102` and omit dependent helpers. Explicit empty/root templates remain valid; absolute action routes do not depend on a class prefix.
 - Route parsing uses ASP.NET `RoutePatternFactory` semantics. Defaults, optional parameters, catch-alls, and constraint-derived primitive types survive normalization. `CatchAll` values `1` and `2` distinguish encoded from preserved slashes.
 - Placeholder matching is case-insensitive. Body, query, form, header, and service parameters are excluded from route-parameter candidates; `FromRoute(Name = ...)` supplies aliases.
 - Output profiles default to camelCase and `WhenWritingNull`. Input profiles default to no omission and `AllowReadingFromString`. Explicit configuration rejects unknown JSON members and invalid enum settings.

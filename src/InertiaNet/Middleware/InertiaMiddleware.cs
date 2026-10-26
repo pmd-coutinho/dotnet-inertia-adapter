@@ -85,7 +85,8 @@ public class InertiaMiddleware
     }
 
     /// <summary>
-    /// Called for an empty Inertia response. Redirects back to load a page object.
+    /// Called for an empty Inertia response when RedirectEmptyResponses is enabled.
+    /// Redirects back to load a page object.
     /// </summary>
     protected virtual Task OnEmptyResponse(HttpContext context)
     {
@@ -123,9 +124,9 @@ public class InertiaMiddleware
         var antiforgery = context.RequestServices.GetService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
         if (antiforgery is null) return Task.CompletedTask;
 
-        var tokens = antiforgery.GetAndStoreTokens(context);
-        if (tokens.RequestToken is not null)
-            inertia.Share("xsrfToken", tokens.RequestToken);
+        // Resolve only when the prop is included in a rendered page, after the
+        // handler has established the current user and before headers are sent.
+        inertia.Share("xsrfToken", new Lazy<string?>(() => antiforgery.GetAndStoreTokens(context).RequestToken));
 
         return Task.CompletedTask;
     }
@@ -136,6 +137,12 @@ public class InertiaMiddleware
     {
         var services = context.RequestServices;
         var options = services.GetRequiredService<IOptions<InertiaOptions>>().Value;
+
+        if (options.RequestPredicate?.Invoke(context) == false)
+        {
+            await _next(context);
+            return;
+        }
 
         var requestSettings = new InertiaRequestSettings(
             rootView: GetRootView(context) ?? options.RootView,
@@ -187,8 +194,6 @@ public class InertiaMiddleware
         if (!isPrefetch && tempDataFactory is not null)
         {
             var tempData = tempDataFactory.GetTempData(context);
-            tempData.Keep(); // reflash by default — consumed props are removed below
-
             if (tempData.TryGetValue(SessionKeys.ValidationErrors, out var errorsJson) &&
                 errorsJson is string errorsStr)
             {
@@ -246,7 +251,7 @@ public class InertiaMiddleware
             InertiaResponseHeaders.AppendVary(context.Response, HeaderNames.Inertia);
         var canNormalize = isInertia && !context.Response.HasStarted
             && !PrecognitionValidation.IsPrecognitive(context.Request);
-        if (canNormalize && (context.Response.StatusCode == StatusCodes.Status204NoContent
+        if (options.RedirectEmptyResponses && canNormalize && (context.Response.StatusCode == StatusCodes.Status204NoContent
             || (context.Response.StatusCode == StatusCodes.Status200OK
                 && context.Response.ContentLength is null or 0
                 && (!context.Response.Body.CanSeek || context.Response.Body.Length == 0))))

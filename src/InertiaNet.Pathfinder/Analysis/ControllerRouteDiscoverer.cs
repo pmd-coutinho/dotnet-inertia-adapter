@@ -41,7 +41,7 @@ static class ControllerRouteDiscoverer
         ["HttpDeleteAttribute"] = ["delete"],
     };
 
-    public static List<RouteInfo> Discover(SyntaxTree tree)
+    public static List<RouteInfo> Discover(SyntaxTree tree, SemanticModel? semantic = null)
     {
         var routes = new List<RouteInfo>();
         var root = tree.GetRoot();
@@ -53,11 +53,11 @@ static class ControllerRouteDiscoverer
 
             var fullName = GetFullName(classDecl);
             var shortName = classDecl.Identifier.Text;
-            var classRoute = GetAttributeArgument(classDecl.AttributeLists, "Route", "RouteAttribute");
-            var area = GetAttributeArgument(classDecl.AttributeLists, "Area", "AreaAttribute");
+            var classRouteResolved = TryGetAttributeArgument(classDecl.AttributeLists, semantic, out var classRoute, "Route", "RouteAttribute");
+            var areaResolved = TryGetAttributeArgument(classDecl.AttributeLists, semantic, out var area, "Area", "AreaAttribute");
 
             // Detect [Host] attribute at the class level
-            var classHost = GetAttributeArgument(classDecl.AttributeLists, "Host", "HostAttribute");
+            var classHostResolved = TryGetAttributeArgument(classDecl.AttributeLists, semantic, out var classHost, "Host", "HostAttribute");
 
             foreach (var method in classDecl.Members.OfType<MethodDeclarationSyntax>())
             {
@@ -65,15 +65,16 @@ static class ControllerRouteDiscoverer
                     continue;
 
                 var actionName = method.Identifier.Text;
-                var httpAttrs = GetHttpMethodAttributes(method.AttributeLists);
+                var httpAttrs = GetHttpMethodAttributes(method.AttributeLists, semantic);
 
                 if (httpAttrs.Count == 0)
                 {
                     // Check for plain [Route] on the method
-                    var methodRoute = GetAttributeArgument(method.AttributeLists, "Route", "RouteAttribute");
+                    if (!TryGetAttributeArgument(method.AttributeLists, semantic, out var methodRoute, "Route", "RouteAttribute"))
+                        continue;
                     if (methodRoute != null)
                     {
-                        httpAttrs.Add(("get", ["get"], methodRoute));
+                        httpAttrs.Add((["get"], methodRoute, true));
                     }
                     else
                     {
@@ -81,7 +82,8 @@ static class ControllerRouteDiscoverer
                     }
                 }
 
-                var routeName = GetRouteNameFromAttributes(method.AttributeLists);
+                if (!TryGetRouteNameFromAttributes(method.AttributeLists, semantic, out var routeName))
+                    continue;
 
                 // Extract [FromBody] parameter type
                 var bodyTypeName = ExtractBodyTypeName(method);
@@ -92,7 +94,9 @@ static class ControllerRouteDiscoverer
                 var sourceLine = lineSpan.StartLinePosition.Line + 1; // 0-based to 1-based
 
                 // Detect [Host] attribute at the method level (overrides class level)
-                var methodHost = GetAttributeArgument(method.AttributeLists, "Host", "HostAttribute");
+                if (!TryGetAttributeArgument(method.AttributeLists, semantic, out var methodHost, "Host", "HostAttribute")
+                    || (methodHost is null && !classHostResolved))
+                    continue;
                 var hostValue = methodHost ?? classHost;
                 string? domain = null;
                 string? scheme = null;
@@ -114,13 +118,22 @@ static class ControllerRouteDiscoverer
 
                 // Group httpAttrs by their template value to handle multi-template routes
                 var templateGroups = httpAttrs
-                    .GroupBy(h => h.TemplateValue ?? "")
+                    .Where(h => h.Resolved)
+                    .GroupBy(h => h.TemplateValue)
                     .ToList();
 
                 foreach (var templateGroup in templateGroups)
                 {
                     var allMethods = templateGroup.SelectMany(h => h.Methods).Distinct().ToArray();
-                    var methodTemplate = templateGroup.Key == "" ? null : templateGroup.Key;
+                    var methodTemplate = templateGroup.Key;
+                    var absolute = methodTemplate?.StartsWith('/') == true || methodTemplate?.StartsWith("~/", StringComparison.Ordinal) == true;
+                    if ((!absolute && !classRouteResolved) || !areaResolved)
+                        continue;
+                    if (classRoute is null && methodTemplate is null)
+                    {
+                        Report(method, "No attribute route template is available. Conventional routes cannot be inferred; route helper omitted. Add an explicit route template.");
+                        continue;
+                    }
 
                     // Build URL template
                     var urlTemplate = BuildUrlTemplate(classRoute, methodTemplate, shortName, actionName, area);
@@ -206,19 +219,30 @@ static class ControllerRouteDiscoverer
             .Any(a => names.Contains(GetAttributeName(a)));
     }
 
-    private static string? GetAttributeArgument(SyntaxList<AttributeListSyntax> attrLists, params string[] names)
+    private static bool TryGetAttributeArgument(SyntaxList<AttributeListSyntax> attrLists,
+        SemanticModel? semantic, out string? value, params string[] names)
     {
         var attr = attrLists.SelectMany(al => al.Attributes)
             .FirstOrDefault(a => names.Contains(GetAttributeName(a)));
 
-        if (attr?.ArgumentList?.Arguments.Count > 0)
+        return TryGetAttributeArgument(attr, semantic, out value);
+    }
+
+    private static bool TryGetAttributeArgument(AttributeSyntax? attr, SemanticModel? semantic, out string? value)
+    {
+        value = null;
+        var arg = attr?.ArgumentList?.Arguments.FirstOrDefault(argument => argument.NameEquals is null);
+        if (arg is not null)
         {
-            var arg = attr.ArgumentList.Arguments[0];
-            if (arg.Expression is LiteralExpressionSyntax literal)
-                return literal.Token.ValueText;
+            value = ConstantString(arg.Expression, semantic);
+            if (value is null)
+            {
+                Report(arg, "Cannot resolve route attribute argument to a constant string; dependent route helpers omitted. Use a string literal or a resolvable constant.");
+                return false;
+            }
         }
 
-        return null;
+        return true;
     }
 
     private static string GetAttributeName(AttributeSyntax attr)
@@ -231,10 +255,10 @@ static class ControllerRouteDiscoverer
         };
     }
 
-    private static List<(string Template, string[] Methods, string? TemplateValue)> GetHttpMethodAttributes(
-        SyntaxList<AttributeListSyntax> attrLists)
+    private static List<(string[] Methods, string? TemplateValue, bool Resolved)> GetHttpMethodAttributes(
+        SyntaxList<AttributeListSyntax> attrLists, SemanticModel? semantic)
     {
-        var results = new List<(string Template, string[] Methods, string? TemplateValue)>();
+        var results = new List<(string[] Methods, string? TemplateValue, bool Resolved)>();
 
         foreach (var attr in attrLists.SelectMany(al => al.Attributes))
         {
@@ -242,38 +266,45 @@ static class ControllerRouteDiscoverer
             if (!AttributeToMethods.TryGetValue(name, out var methods))
                 continue;
 
-            string? template = null;
-            if (attr.ArgumentList?.Arguments.Count > 0)
-            {
-                var firstArg = attr.ArgumentList.Arguments[0];
-                if (firstArg.NameEquals == null && firstArg.Expression is LiteralExpressionSyntax literal)
-                    template = literal.Token.ValueText;
-            }
-
-            // Use the original template value as-is for grouping, empty string as fallback
-            results.Add((template ?? "", methods, template));
+            var resolved = TryGetAttributeArgument(attr, semantic, out var template);
+            results.Add((methods, template, resolved));
         }
 
         return results;
     }
 
-    private static string? GetRouteNameFromAttributes(SyntaxList<AttributeListSyntax> attrLists)
+    private static bool TryGetRouteNameFromAttributes(SyntaxList<AttributeListSyntax> attrLists,
+        SemanticModel? semantic, out string? name)
     {
+        name = null;
         foreach (var attr in attrLists.SelectMany(al => al.Attributes))
         {
             if (attr.ArgumentList == null) continue;
 
             foreach (var arg in attr.ArgumentList.Arguments)
             {
-                if (arg.NameEquals?.Name.Identifier.Text == "Name" &&
-                    arg.Expression is LiteralExpressionSyntax literal)
+                if (arg.NameEquals?.Name.Identifier.Text == "Name")
                 {
-                    return literal.Token.ValueText;
+                    name = ConstantString(arg.Expression, semantic);
+                    if (name is not null) return true;
+                    Report(arg, "Cannot resolve route name to a constant string; route helper omitted.");
+                    return false;
                 }
             }
         }
 
-        return null;
+        return true;
+    }
+
+    private static string? ConstantString(ExpressionSyntax expression, SemanticModel? semantic)
+        => expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression)
+            ? literal.Token.ValueText
+            : semantic?.GetConstantValue(expression).Value as string;
+
+    private static void Report(SyntaxNode node, string message)
+    {
+        var span = node.GetLocation().GetLineSpan();
+        PathfinderDiagnostics.Report(span.Path, span.StartLinePosition.Line + 1, message, "PATHFINDER102");
     }
 
     private static string BuildUrlTemplate(string? classRoute, string? methodTemplate,
