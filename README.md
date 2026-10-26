@@ -833,6 +833,87 @@ Entries include the registered route name, deferred group and once-cache key whe
 
 ---
 
+## System Overview
+
+The repository separates the ASP.NET Core runtime from development-time tooling.
+The runtime turns MVC and Minimal API results into Inertia page responses;
+Pathfinder reads C# contracts and emits TypeScript; analyzers report supported
+source mistakes; templates and the playground show application integration.
+[Directory.Build.props](./Directory.Build.props) supplies the shared package
+version used by the publishable projects.
+
+## Subdirectories & System Boundaries
+
+- [Source packages](./src/README.md): the runtime adapter, Pathfinder generator,
+  Roslyn analyzers, starter templates, and the MSBuild companion package.
+- [Samples](./samples/README.md): the React/Vue playground and its server/client
+  contracts.
+- [Scripts](./scripts/README.md): template staging and installed-package
+  verification helpers.
+- Test configuration lives in
+  [InertiaNet.Tests](./tests/InertiaNet.Tests/InertiaNet.Tests.csproj),
+  [InertiaNet.Pathfinder.Tests](./tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj),
+  [InertiaNet.Analyzers.Tests](./tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj),
+  and the [TypeScript contract tests](./tests/InertiaNet.Pathfinder.TypeScript/package.json).
+  Test-only directories do not receive component contracts.
+- [CI](./.github/workflows/ci.yml) composes runtime, generator, analyzer, generated
+  TypeScript, browser, template, and installed-package checks.
+  [Release documentation](./docs/releasing.md) describes staging and publishing.
+
+## Global Invariants
+
+- The runtime and Pathfinder tool target .NET 8, 9, and 10; the playground,
+  starter applications, and tooling test projects require .NET 10. The analyzer
+  assembly targets .NET Standard 2.0 for compiler integration.
+- MVC and Minimal APIs share the Inertia runtime contract. Middleware prepares
+  request state, prop resolution selects and evaluates values, and results/tag
+  helpers own response output.
+- Pathfinder generation is a development-time operation; application startup is
+  not executed to discover contracts. Explicit configuration and endpoint
+  manifests cover cases source discovery cannot establish on its own.
+- Publishable packages derive their version from the same shared MSBuild
+  properties. Template staging replaces `__INERTIANET_PACKAGE_VERSION__` with
+  that resolved version before packaging.
+- Frontend workspaces live under `ClientApp`; Vite assets are emitted under the
+  hosting application's `wwwroot/build` directory. Keep frontend entry paths,
+  root views, and asset options aligned.
+
+## Global Side Effects
+
+- Hosted applications write HTTP responses and redirect state through TempData;
+  configured authentication and antiforgery flows use cookies. Prop callbacks
+  and registered event handlers may perform application-defined work.
+- Enabled SSR sends HTTP requests to the configured renderer or Vite bridge.
+  Asset helpers and version strategies read local hot files and manifests.
+- Pathfinder writes generated TypeScript and tracking files; its watch mode
+  observes project inputs. Opting into the MSBuild companion can invoke that
+  generation during builds.
+- Template staging replaces the supplied staging directory, copies package
+  sources, and stamps versions. Package verification installs tools and creates
+  temporary projects; frontend builds write generated modules and asset output.
+  See each component contract for its precise boundary.
+
+## System Verification
+
+Run the following from the repository root with the SDKs/runtimes and frontend
+packages required by the relevant project installed:
+
+```bash
+dotnet test tests/InertiaNet.Tests/InertiaNet.Tests.csproj
+dotnet test tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj
+dotnet test tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj
+npm --prefix tests/InertiaNet.Pathfinder.TypeScript ci
+npm --prefix tests/InertiaNet.Pathfinder.TypeScript test
+```
+
+The runtime suite targets all three supported frameworks; add `--framework
+net8.0`, `net9.0`, or `net10.0` to select one. Browser and template smoke checks
+have additional setup documented in the [playground contract](./samples/Playground/README.md),
+[templates contract](./src/InertiaNet.Templates/README.md), and
+[CI workflow](./.github/workflows/ci.yml).
+
+---
+
 ## License
 
 MIT

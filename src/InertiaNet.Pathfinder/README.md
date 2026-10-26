@@ -126,15 +126,29 @@ pathfinder [options]
 |---|---|---|---|
 | `--project <path>` | `-p` | `.` | Path to the .NET project to scan |
 | `--output <path>` | `-o` | `./pathfinder` | Output directory for generated files |
+| `--framework <tfm>` | | First declared | Target framework to evaluate |
+| `--configuration <name>` | `-c` | `Debug` | Project configuration |
+| `--contracts <json>` | | | Explicit input/output serialization profiles |
+| `--endpoint-manifest <json>` | | | Registered endpoint snapshot to compare |
 | `--actions <bool>` | | `true` | Generate action files |
 | `--routes <bool>` | | `true` | Generate named route files |
 | `--forms <bool>` | | `true` | Generate `.form()` helpers on actions and routes |
+| `--models <bool>` | | `true` | Generate experimental model declarations |
+| `--enums <bool>` | | `true` | Generate experimental enum declarations |
+| `--props <bool>` | | `true` | Generate experimental page/shared prop declarations |
+| `--wolverine <bool>` | | `true` | Enable experimental Wolverine discovery |
 | `--skip <patterns>` | | | Semicolon-separated skip patterns (e.g. `*Health*;Admin*`) |
-| `--clean <bool>` | | `true` | Clean output directory before generation |
+| `--clean <bool>` | | `true` | Remove stale Pathfinder-owned files |
 | `--no-clean` | | | Shorthand for `--clean false` |
 | `--watch` | `-w` | `false` | Watch for file changes and regenerate |
 | `--debounce <ms>` | | `300` | Debounce delay for watch mode (milliseconds) |
-| `--quiet` | `-q` | `false` | Suppress console output |
+| `--quiet` | `-q` | `false` | Suppress progress output; diagnostics remain on stderr |
+| `--strict`, `--fail-on-warning` | | `false` | Stop before writing if discovery reports diagnostics |
+| `--check` | | `false` | Check generated output freshness without modifying it |
+| `--adopt` | | `false` | Adopt matching paths in legacy generated output |
+| `--diagnostics-json` | | `false` | Emit structured diagnostics on stderr |
+| `--version` | | | Print the tool version |
+| `--help` | `-h` | | Show supported options |
 
 ---
 
@@ -688,6 +702,7 @@ pathfinder -p ./src/MyApp -o ./src/frontend/pathfinder --watch
 ```
 
 The watcher:
+
 - Monitors C# sources, project/configuration files, and evaluated linked-source directories
 - Excludes `obj/`, `bin/`, `node_modules/`, `.git/`, and its generated output directory
 - Debounces changes (default 300ms, configurable with `--debounce`)
@@ -763,6 +778,7 @@ pathfinder --skip "*Health*;Admin*"
 ```
 
 Pattern matching:
+
 - `*Health*` — matches any controller containing "Health"
 - `Admin*` — matches controllers starting with "Admin"
 - `*Controller` — matches controllers ending with "Controller"
@@ -915,15 +931,50 @@ function validateParameters(routeName: string, url: string, required: string[], 
 ## How It Works
 
 1. **Evaluate** — Reads the project's evaluated `Compile` inputs and framework/configuration symbols, or scans a source directory
-2. **Parse** — Parses each input into a Roslyn syntax tree without building or starting the app
-3. **Discover routes** — Three independent discoverers scan for MVC controllers, Minimal APIs, and Wolverine endpoints
-4. **Discover enums** — Finds all enum declarations
-5. **Discover props** — Finds `Render()` / `Inertia()` calls and extracts prop shapes
-6. **Discover models** — Finds classes referenced by page props and extracts their properties
-7. **Generate** — Stages TypeScript files for the selected actions, routes, enums, types, and models
-8. **Barrel** — Generates `index.ts` re-export files for clean imports
+2. **Parse and compile for analysis** — Parses inputs and uses `ProjectCompilationLoader` to build a Roslyn compilation with available project and metadata references, without starting the app
+3. **Discover routes** — Scans MVC controllers, Minimal APIs, and optionally Wolverine endpoints, then applies skip patterns
+4. **Discover contracts** — Uses `SemanticContractDiscoverer` with explicit or default input/output serialization profiles to produce routes, enums, models, page props, and shared props
+5. **Validate** — Optionally compares an exported endpoint manifest; errors or strict-mode diagnostics stop before generation
+6. **Generate** — Stages TypeScript files for the selected actions, routes, enums, types, and models, including runtime utilities and barrel exports
+7. **Synchronize** — Checks freshness or synchronizes staged output with the generated directory
 
 Pathfinder does not start your application. Project evaluation uses `dotnet msbuild` with Pathfinder disabled to prevent recursive generation. Dynamic runtime registrations and custom serializer behavior that static discovery cannot resolve still require explicit contracts or diagnostics.
+
+---
+
+## Interface
+
+The supported entry point is the `pathfinder` CLI described above. Its implementation types are internal to the tool assembly.
+
+- `PathfinderConfig.FromArgs` parses CLI switches and internal `--msbuild` context from `PATHFINDER_BUILD_*` environment values.
+- `ProjectSourceLoader.LoadAsync` returns `ProjectSources` with evaluated files, references, imports, parse settings, and watched inputs.
+- `PathfinderWatchRunner.RunAsync` watches source/project inputs and invokes regeneration after debouncing changes.
+- [Analysis](./Analysis/README.md) supplies normalized routes, serialization contracts, and diagnostics.
+- [Generation](./Generation/README.md) stages TypeScript artifacts and synchronizes output.
+
+## Invariants
+
+- Project directories containing several `.csproj` files require an explicit project path. Requested frameworks must be declared by that project; `--framework` requires a project.
+- Analysis does not start application code. Project evaluation invokes `dotnet msbuild` with `PathfinderEnabled=false` to prevent recursive generation.
+- Boolean switches require `true` or `false`; debounce must be between 1 and 60000 milliseconds. `--check` and `--watch` cannot be combined.
+- Error diagnostics, and all discovery diagnostics under strict mode, stop before generation. Quiet mode leaves diagnostics on stderr.
+- Exit codes are `0` for success/current output or cancellation, `1` for analysis errors, strict diagnostics, or stale checked output, and `2` for handled argument, evaluation, serialization, or output failures.
+- Watch mode ignores the generated output, `bin`, `obj`, `node_modules`, and `.git`; it includes external input directories and refreshes its watchers after regeneration.
+
+## Side Effects
+
+The tool reads project/source/configuration files, serialization profiles, endpoint snapshots, and framework/package metadata. It starts `dotnet msbuild` for evaluation and preprocessing, including a temporary preprocessing file. Generation writes TypeScript and bookkeeping files; `--check` preserves the output directory. Progress goes to stdout and diagnostics to stderr. Watch mode installs filesystem watchers and a change channel until cancellation; console cancellation handlers and watchers are disposed when the run ends.
+
+## Verification
+
+Working directory: the repository root (`dotnet-inertia-adapter/`). The .NET test project targets .NET 10. Install the TypeScript test package's dependencies before its npm command.
+
+```sh
+dotnet test tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj
+npm --prefix tests/InertiaNet.Pathfinder.TypeScript test
+```
+
+The TypeScript suite generates fixtures, typechecks, builds, and runs Node runtime/protocol tests.
 
 ---
 
