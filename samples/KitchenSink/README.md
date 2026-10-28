@@ -165,6 +165,11 @@ optional/once/visible props, merge behavior, all five feed pages, polling contro
 remembered state, authentication, history, fragments, SSR fallback, and protocol
 headers. It saves overview screenshots under the ignored `test-results` directory.
 
+The SSR fallback test deliberately logs `Requested kitchen sink SSR fallback`
+as an SSR error, then verifies that the client-rendered page remains interactive.
+That message is expected; use the final Playwright pass/fail result to determine
+whether the suite succeeded.
+
 ## Source map
 
 - `Program.cs`: MVC, antiforgery, authentication, Inertia, Vite, database startup

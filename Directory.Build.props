@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <InertiaNetPlatformVersionPrefix>3.5.3</InertiaNetPlatformVersionPrefix>
+    <InertiaNetPlatformVersionPrefix>3.5.4</InertiaNetPlatformVersionPrefix>
     <InertiaNetDefaultVersionSuffix>alpha.0</InertiaNetDefaultVersionSuffix>
     <InertiaNetLaravelBaselineVersion>3.5.2</InertiaNetLaravelBaselineVersion>
 

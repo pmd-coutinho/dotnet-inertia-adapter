@@ -6,8 +6,8 @@ Includes support for deferred props, merge props, once props, infinite scroll, h
 
 **Targets:** .NET 8, .NET 9, .NET 10
 
-**Versioning:** InertiaNet has its own package versions. The current development
-train is 3.5.3; the reviewed Laravel adapter baseline is 3.5.2. See
+**Versioning:** Stable packages are version 3.5.3. The next development train
+is 3.5.4; the reviewed Laravel adapter baseline remains 3.5.2. See
 [releasing](docs/releasing.md) for compatibility tracking and publishing rules.
 
 ---
@@ -25,7 +25,7 @@ The [React/Vue playground](samples/Playground/README.md) demonstrates typed Path
 ## Installation
 
 ```
-dotnet add package InertiaNet --prerelease
+dotnet add package InertiaNet --version 3.5.3
 ```
 
 ---
@@ -427,7 +427,7 @@ dotnet new inertianet-react -n MyReactApp
 dotnet new inertianet-vue -n MyVueApp
 ```
 
-Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current development prefix is 3.5.3; automatic builds use `3.5.3-alpha.<publishing workflow run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Keep all InertiaNet package references on the same published build. Local `3.5.3-alpha.0` builds are not a published release.
+Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates), such as stable `3.5.3`. The next development prefix is 3.5.4; automatic builds use `3.5.4-alpha.<publishing workflow run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit version. Keep all InertiaNet package references on the same published build. Local `3.5.4-alpha.0` builds are not a published release.
 
 Each starter includes:
 

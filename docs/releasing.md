@@ -74,13 +74,14 @@ Change `InertiaNetLaravelBaselineVersion` when an upstream release has been
 reviewed; it does not change NuGet precedence. JavaScript client compatibility is
 tested independently (currently 3.0.2 and 3.9.1).
 
-The current development prefix is `3.5.3`; local builds use `3.5.3-alpha.0`.
+Stable packages are version `3.5.3`. The next development prefix is `3.5.4`;
+local builds use `3.5.4-alpha.0`.
 The local suffix is not a published release number. Publication assigns its own
 suffix and stamps every package, including template dependencies, with the same
 resolved version.
 
-A preview of `3.5.3` sorts above stable `3.5.2`; every `3.5.2-alpha.*` sorts
-below stable `3.5.2`, regardless of its publication date. See
+A preview of `3.5.4` sorts above stable `3.5.3`; every `3.5.3-alpha.*` sorts
+below stable `3.5.3`, regardless of its publication date. See
 [NuGet version precedence](https://learn.microsoft.com/nuget/concepts/package-versioning).
 Users must still opt into prereleases to receive previews.
 
@@ -92,9 +93,9 @@ On every successful `master` merge, the publish workflow computes:
 
 Examples:
 
-- `InertiaNet` -> `3.5.3-alpha.142`
-- `InertiaNet.Pathfinder` -> `3.5.3-alpha.142`
-- `InertiaNet.Templates` -> `3.5.3-alpha.142`
+- `InertiaNet` -> `3.5.4-alpha.142`
+- `InertiaNet.Pathfinder` -> `3.5.4-alpha.142`
+- `InertiaNet.Templates` -> `3.5.4-alpha.142`
 
 Automatic and manual previews both use the publishing workflow's
 `github.run_number`, rather than mixing CI and publishing counters. GitHub
@@ -133,12 +134,23 @@ That publishes all packages at the exact stable version:
 
 You can also use `workflow_dispatch` with `release_kind = prerelease` if you ever need a manual prerelease.
 
-After releasing stable `3.5.3`, advance `InertiaNetPlatformVersionPrefix` to the
-next planned version (for example `3.5.4`) before the next preview publication.
+After each stable release, advance `InertiaNetPlatformVersionPrefix` to the
+next planned version before the next preview publication. For example, after
+stable `3.5.4`, development previews should use `3.5.5` (or the next minor when
+new features are planned).
 An ordinary bug fix can be published as the next stable patch without releasing
 an alpha first. Keep the reviewed Laravel baseline unchanged unless the upstream
 compatibility review also changes it. Publishing an older source snapshot still
 uses that snapshot's prefix, so do not use old commits to publish new previews.
+
+## Stable 3.5.3 publication
+
+On 2026-10-28, the [stable publication workflow](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/runs/40699317152)
+published all five packages at `3.5.3` from commit
+`63aae75cd78f2e3beafe0bc386396ae45095685d`, following the successful
+[full CI run](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/runs/40682156488).
+The next development prefix is `3.5.4`; the reviewed Laravel baseline remains
+`3.5.2`.
 
 ## Templates And Version Stamping
 

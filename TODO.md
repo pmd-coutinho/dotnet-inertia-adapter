@@ -10,7 +10,7 @@ Strategy lives in [ROADMAP.md](ROADMAP.md); detailed implementation evidence liv
 - [x] Complete installed-package/template checks and final regression runs.
 - [x] Complete the public documentation/example audit and align the version prefix to Laravel v3.5.2.
 
-Publication follows the completed push through [CI](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/ci.yml) and [automatic NuGet publishing](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/publish-prerelease.yml). Those live results are authoritative for each release; local builds use `3.5.3-alpha.0`, while publication assigns `3.5.3-alpha.<publishing workflow run>`. The reviewed Laravel baseline remains 3.5.2 and no longer determines the package patch version.
+Publication follows the completed push through [CI](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/ci.yml) and [automatic NuGet publishing](https://github.com/pmd-coutinho/dotnet-inertia-adapter/actions/workflows/publish-prerelease.yml). Stable packages are version 3.5.3; local development builds now use `3.5.4-alpha.0`, while preview publication assigns `3.5.4-alpha.<publishing workflow run>`. The reviewed Laravel baseline remains 3.5.2 and no longer determines the package patch version.
 
 ## Audit follow-up (2026-10-26)
 
@@ -31,3 +31,4 @@ Supported runtime tests execute on .NET 8, 9 and 10. TypeScript/client fixtures 
 - [x] Use the publishing workflow's counter for automatic and manual preview defaults.
 - [x] Validate release versions and reject previews of an already stable base.
 - [x] Add release-version calculation checks to CI and document stable patch releases.
+- [x] Publish stable 3.5.3 from CI-verified commit `63aae75` and advance development to 3.5.4.
