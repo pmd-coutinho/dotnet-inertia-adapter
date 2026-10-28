@@ -2,7 +2,7 @@
 
 ## Direction
 
-Keep the official Inertia v3 wire contract and provide ASP.NET Core APIs for MVC, Minimal APIs, Razor, Vite, validation and testing. Laravel is the reference implementation for protocol behavior. The platform version's base tracks the reviewed Laravel adapter release; the NuGet prerelease suffix and tested JavaScript client versions are independent.
+Keep the official Inertia v3 wire contract and provide ASP.NET Core APIs for MVC, Minimal APIs, Razor, Vite, validation and testing. Laravel is the reference implementation for protocol behavior. InertiaNet packages follow their own shared Semantic Versioning sequence; the reviewed Laravel baseline and tested JavaScript client versions are tracked separately. The current development prefix is 3.5.3 and the reviewed Laravel baseline is 3.5.2.
 
 ## Shipped foundations
 

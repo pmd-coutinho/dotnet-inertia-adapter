@@ -1,7 +1,8 @@
 <Project>
   <PropertyGroup>
-    <InertiaNetPlatformVersionPrefix>3.5.2</InertiaNetPlatformVersionPrefix>
-    <InertiaNetDefaultVersionSuffix>alpha.13</InertiaNetDefaultVersionSuffix>
+    <InertiaNetPlatformVersionPrefix>3.5.3</InertiaNetPlatformVersionPrefix>
+    <InertiaNetDefaultVersionSuffix>alpha.0</InertiaNetDefaultVersionSuffix>
+    <InertiaNetLaravelBaselineVersion>3.5.2</InertiaNetLaravelBaselineVersion>
 
     <InertiaNetPlatformPackageVersion Condition="'$(InertiaNetPlatformPackageVersion)' == ''">$(InertiaNetPlatformVersionPrefix)-$(InertiaNetDefaultVersionSuffix)</InertiaNetPlatformPackageVersion>
   </PropertyGroup>

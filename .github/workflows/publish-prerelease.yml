@@ -61,40 +61,30 @@ jobs:
       - name: Compute package version
         id: versions
         shell: bash
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          VERSION_PREFIX: ${{ inputs.version_prefix }}
+          VERSION_SUFFIX: ${{ inputs.version_suffix }}
+          PUBLISH_RUN_NUMBER: ${{ github.run_number }}
         run: |
           default_prefix=$(dotnet msbuild src/InertiaNet/InertiaNet.csproj -getProperty:InertiaNetPlatformVersionPrefix)
+          bash scripts/compute-package-version.sh "$default_prefix" "$RELEASE_EVENT" "$RELEASE_KIND" \
+            "$VERSION_PREFIX" "$VERSION_SUFFIX" "$PUBLISH_RUN_NUMBER" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            release_kind="prerelease"
-            version_prefix="$default_prefix"
-            version_suffix="alpha.${{ github.event.workflow_run.run_number }}"
-          else
-            release_kind="${{ github.event.inputs.release_kind }}"
-            version_prefix="${{ github.event.inputs.version_prefix }}"
-            version_suffix="${{ github.event.inputs.version_suffix }}"
-
-            if [ -z "$version_prefix" ]; then
-              version_prefix="$default_prefix"
-            fi
-
-            if [ "$release_kind" = "prerelease" ] && [ -z "$version_suffix" ]; then
-              version_suffix="alpha.${{ github.run_number }}"
-            fi
-          fi
-
-          if [ "$release_kind" = "stable" ]; then
-            platform_version="$version_prefix"
-          else
-            if [ -z "$version_suffix" ]; then
-              echo "Prerelease publishing requires a version suffix." >&2
-              exit 1
-            fi
-
-            platform_version="$version_prefix-$version_suffix"
-          fi
-
-          echo "release_kind=$release_kind" >> "$GITHUB_OUTPUT"
-          echo "platform_version=$platform_version" >> "$GITHUB_OUTPUT"
+      - name: Reject previews of an already stable version
+        if: steps.versions.outputs.release_kind == 'prerelease'
+        shell: bash
+        env:
+          VERSION_PREFIX: ${{ steps.versions.outputs.version_prefix }}
+        run: |
+          status=$(curl --silent --show-error --retry 3 --max-time 30 --output /dev/null --write-out '%{http_code}' \
+            "https://api.nuget.org/v3-flatcontainer/inertianet/$VERSION_PREFIX/inertianet.nuspec")
+          case "$status" in
+            404) ;;
+            200) echo "InertiaNet $VERSION_PREFIX is already stable. Advance the package version prefix before publishing a preview." >&2; exit 1 ;;
+            *) echo "Could not check the stable package on NuGet (HTTP $status)." >&2; exit 1 ;;
+          esac
 
       - name: Restore
         run: dotnet restore InertiaNet.slnx

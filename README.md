@@ -6,6 +6,10 @@ Includes support for deferred props, merge props, once props, infinite scroll, h
 
 **Targets:** .NET 8, .NET 9, .NET 10
 
+**Versioning:** InertiaNet has its own package versions. The current development
+train is 3.5.3; the reviewed Laravel adapter baseline is 3.5.2. See
+[releasing](docs/releasing.md) for compatibility tracking and publishing rules.
+
 ---
 
 ## Verified integration
@@ -399,9 +403,11 @@ Add it to your app project like any other analyzer package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Analyzers" Version="3.5.2-alpha.13" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Analyzers" Version="VERSION" PrivateAssets="all" />
 </ItemGroup>
 ```
+
+Replace `VERSION` with the same published version as your `InertiaNet` package.
 
 ## Templates
 
@@ -421,7 +427,7 @@ dotnet new inertianet-react -n MyReactApp
 dotnet new inertianet-vue -n MyVueApp
 ```
 
-Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current base is 3.5.2; automatic builds use `3.5.2-alpha.<CI run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Use the same published build for package references shown with the local `alpha.13` example.
+Replace `VERSION` with an exact published version from [NuGet](https://www.nuget.org/packages/InertiaNet.Templates). The current development prefix is 3.5.3; automatic builds use `3.5.3-alpha.<publishing workflow run number>`. The templates target .NET 10; SDK 10 template installation requires the explicit prerelease version. Keep all InertiaNet package references on the same published build. Local `3.5.3-alpha.0` builds are not a published release.
 
 Each starter includes:
 

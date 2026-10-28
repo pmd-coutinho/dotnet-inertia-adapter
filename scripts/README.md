@@ -8,6 +8,13 @@ Pathfinder tool with its MSBuild companion. They are invoked by the
 
 ## Interface
 
+- [compute-package-version.sh](./compute-package-version.sh) accepts
+  `<default-prefix> <event> <release-kind> <prefix-override> <suffix-override>
+  <publish-run-number>`. It validates SemVer and prints release kind, prefix and
+  final package version as GitHub Actions outputs. Automatic and manual previews
+  use the same publishing-workflow run number unless manually overriding a suffix.
+- [test-package-version.sh](./test-package-version.sh) verifies automatic/manual
+  numbering, stable releases, explicit overrides, reruns and invalid inputs.
 - [stage-templates.sh](./stage-templates.sh) accepts exactly three arguments:
   `<source-dir> <staging-dir> <inertianet-package-version>`. It copies template
   sources, shared version properties, and the package icon into staging, then
@@ -46,6 +53,8 @@ package installation:
 
 ```bash
 bash -n scripts/stage-templates.sh
+bash -n scripts/compute-package-version.sh scripts/test-package-version.sh
+bash scripts/test-package-version.sh
 node --check scripts/test-pathfinder-package.cjs
 ```
 

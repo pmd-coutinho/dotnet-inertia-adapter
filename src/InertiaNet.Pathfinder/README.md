@@ -736,9 +736,12 @@ dotnet tool restore
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="3.5.2-alpha.13" PrivateAssets="all" />
+  <PackageReference Include="InertiaNet.Pathfinder.Build" Version="VERSION" PrivateAssets="all" />
 </ItemGroup>
 ```
+
+Replace `VERSION` with the same exact published version as your installed
+`InertiaNet.Pathfinder` tool.
 
 3. Enable it in your project file:
 

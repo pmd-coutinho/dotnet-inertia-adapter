@@ -11,6 +11,13 @@ permissions:
   contents: read
 
 jobs:
+  test-release-versioning:
+    name: Release versioning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-package-version.sh
+
   test:
     name: Test (${{ matrix.framework }})
     runs-on: ubuntu-latest
