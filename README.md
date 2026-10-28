@@ -10,6 +10,12 @@ Includes support for deferred props, merge props, once props, infinite scroll, h
 
 ## Verified integration
 
+The [kitchen sink](samples/KitchenSink/README.md) is an interactive React feature
+collection with persistent SQLite CRUD, forms/uploads, Precognition, prop loading
+and merging, infinite scroll, polling, history, SSR and a response inspector.
+Its Aspire AppHost starts the local services together; a standalone run path is
+also available.
+
 The [React/Vue playground](samples/Playground/README.md) demonstrates typed Pathfinder imports, CRUD, error bags, flash, cookie authentication, deferred props, scroll merging, native forms and SSR. Its browser tests exercise hydration, CSR fallback, custom roots and actual antiforgery cookies/headers. Runtime tests cover .NET 8, 9 and 10; generated-code fixtures pin Inertia **3.0.2** and **3.9.1**. The playground uses 3.9.1.
 
 ## Installation

@@ -7,6 +7,12 @@ Pathfinder-generated frontend contracts.
 
 ## Interface
 
+- [KitchenSink](./KitchenSink/README.md) is a React feature collection with
+  persistent SQLite contacts, forms/uploads/Precognition, prop loading and
+  merging, infinite scroll, polling, history/navigation, SSR and an interactive
+  response inspector. [KitchenSink.AppHost](./KitchenSink.AppHost/AppHost.cs)
+  starts the web app, Vite and Node SSR together with Aspire; SQLite needs no
+  container runtime. Standalone run instructions are included.
 - [Playground](./Playground/README.md) hosts equivalent React and Vue todo pages
   in one ASP.NET Core application. Its [controllers](./Playground/Controllers/README.md)
   expose typed page props and request DTOs; its
@@ -27,6 +33,8 @@ Pathfinder-generated frontend contracts.
 
 ## Side Effects
 
+- The kitchen sink creates and seeds a local SQLite file, modifies contacts,
+  reads/discards uploaded files, and optionally starts Aspire/Vite/Node processes.
 - Running the sample starts HTTP/SSR listeners, writes authentication and
   antiforgery cookies, mutates its shared in-memory todo store, and sends SSR
   requests.
@@ -44,3 +52,7 @@ dotnet build samples/Playground/Playground.csproj
 Use the [playground verification instructions](./Playground/README.md#verify)
 for frontend generation, endpoint-manifest comparison, and browser integration
 with Chromium.
+
+The [kitchen sink verification instructions](./KitchenSink/README.md#verify)
+build the AppHost and frontend and run its browser suite with an isolated
+temporary SQLite database.

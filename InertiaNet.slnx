@@ -12,6 +12,8 @@
     <Project Path="tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/KitchenSink/KitchenSink.csproj" />
+    <Project Path="samples/KitchenSink.AppHost/KitchenSink.AppHost.csproj" />
     <Project Path="samples/Playground/Playground.csproj" />
   </Folder>
 </Solution>

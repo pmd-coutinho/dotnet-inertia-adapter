@@ -17,7 +17,7 @@ Razor helpers emit the Inertia app container, page data, SSR head/body content, 
 - A successful SSR body is emitted directly because it owns the root element and page script. The root ID must agree with the SSR entry point.
 - Without SSR, the app helper emits an encoded root ID and an `application/json` page script when a page is available. It escapes `<`, `>`, and `&` after serialization to protect the HTML boundary.
 - SSR head/body are inserted as HTML supplied by the renderer.
-- Hot mode emits the Vite client and requested module from the hot URL. Production requires matching manifest entries and traverses static imports while deduplicating CSS, preloads, and visited entries.
+- Hot mode emits a stylesheet link for CSS entries, or the Vite client and requested module for JavaScript entries, from the hot URL. Put CSS entries in the document head so SSR markup is styled before JavaScript runs. Production requires matching manifest entries and traverses static imports while deduplicating CSS, preloads, and visited entries.
 - Generated asset URLs are HTML-encoded. The React refresh preamble must appear before the Vite input during development and emits nothing without a hot file.
 - Production asset URLs include `Request.PathBase`; dev-server URLs do not. Vite's frontend build base must match the deployment prefix.
 - Nonces propagate to scripts, stylesheets, preloads, and the React preamble. A matching manifest asset's optional `IntegrityKey` (default `integrity`) supplies SRI plus `crossorigin="anonymous"`. CSS integrity is looked up by output filename. Missing hashes remain optional; null `IntegrityKey` disables SRI.

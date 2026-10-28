@@ -94,6 +94,20 @@ public class ViteTagHelperTests
     }
 
     [Fact]
+    public void HotMode_CssEntrypoint_LoadsAsAStylesheetWithoutJavaScript()
+    {
+        using var fixture = new Fixture();
+        File.WriteAllText(Path.Combine(fixture.Root, "hot"), "http://localhost:5173/\n");
+        var context = new DefaultHttpContext();
+        context.Request.PathBase = "/portal";
+        fixture.Options.NonceProvider = _ => "style\"nonce";
+        var helper = new ViteInputTagHelper(Options.Create(fixture.Options), fixture.Cache,
+            new HttpContextAccessor { HttpContext = context }) { Src = "src/style.css" };
+
+        Render(helper).Should().Be("<link rel=\"stylesheet\" href=\"http://localhost:5173/src/style.css\" nonce=\"style&quot;nonce\" />");
+    }
+
+    [Fact]
     public void Production_TraversesStaticImports_DeduplicatesCssAndPreloads_AndStopsCycles()
     {
         using var fixture = new Fixture();

@@ -63,6 +63,12 @@ public sealed class ViteInputTagHelper : TagHelper
         if (IsRunningHot(opts))
         {
             var hotUrl = ReadHotUrl(opts).TrimEnd('/');
+            if (IsCss(Src))
+            {
+                // A stylesheet must load before SSR markup paints, independently of module execution.
+                output.Content.AppendHtml(MakeLinkTag($"{hotUrl}/{Src.TrimStart('/')}", ViteTagAttributes.Security(nonce)));
+                return;
+            }
             output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/@vite/client", ViteTagAttributes.Security(nonce)));
             output.Content.AppendHtml("\n    ");
             output.Content.AppendHtml(MakeScriptTag($"{hotUrl}/{Src.TrimStart('/')}", ViteTagAttributes.Security(nonce)));

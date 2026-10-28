@@ -1,0 +1,7 @@
+App_Data/
+ClientApp/src/pathfinder/
+ClientApp/ssr/
+ClientApp/test-results/
+ClientApp/playwright-report/
+/wwwroot/build/
+/wwwroot/hot
