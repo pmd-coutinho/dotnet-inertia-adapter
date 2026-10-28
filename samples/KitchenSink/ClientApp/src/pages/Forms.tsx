@@ -1,13 +1,19 @@
 import { Head, useForm, usePage } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
-import Demos from "../pathfinder/actions/demos";
+import Demos, {
+  type DemosSaveProfilePayload,
+  type DemosUploadForm,
+} from "../pathfinder/actions/demos";
 
 export default function Forms() {
-  const profile = useForm("post", Demos.saveProfile.url(), {
+  const profile = useForm<DemosSaveProfilePayload>(Demos.saveProfile(), {
     name: "",
     email: "",
   });
-  const upload = useForm<{ file: File | null }>({ file: null });
+  // The generated submitted form requires a file; the editing state starts empty.
+  const upload = useForm<{ file: DemosUploadForm["file"] | null }>({
+    file: null,
+  });
   const page = usePage();
   const receipt = page.flash?.upload as
     | { name: string; bytes: number; contentType: string }
@@ -89,7 +95,7 @@ export default function Forms() {
             className="stack"
             onSubmit={(event) => {
               event.preventDefault();
-              upload.post(Demos.upload.url(), {
+              upload.submit(Demos.upload(), {
                 errorBag: "upload",
                 forceFormData: true,
                 preserveScroll: true,
@@ -143,7 +149,7 @@ export default function Forms() {
         </p>
         <Code>
           {
-            'const form = useForm("post", "/forms/profile", { name: "", email: "" })\n\n// Runs server validation, without saving:\nform.validate("email")\n\n// Saves and follows the server redirect:\nform.submit({ errorBag: "profile" })'
+            'const form = useForm<DemosSaveProfilePayload>(\n  Demos.saveProfile(), { name: "", email: "" },\n)\n\n// Runs server validation, without saving:\nform.validate("email")\n\n// Saves and follows the server redirect:\nform.submit({ errorBag: "profile" })'
           }
         </Code>
       </section>

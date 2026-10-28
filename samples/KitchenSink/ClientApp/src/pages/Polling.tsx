@@ -1,13 +1,8 @@
 import { Head, usePoll } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
+import type { PropsFor } from "../pathfinder/types/page-map";
 
-export default function Polling({
-  pulse,
-  initial,
-}: {
-  pulse: { at: string; contacts: number; requestId: string };
-  initial: string;
-}) {
+export default function Polling({ pulse, initial }: PropsFor<"Polling">) {
   const { start, stop, polling } = usePoll(2000, { only: ["pulse"] });
   return (
     <>

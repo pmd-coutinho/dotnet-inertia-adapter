@@ -7,13 +7,17 @@ import {
   useRemember,
 } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
-import type { Shared } from "../types";
-import Demos from "../pathfinder/actions/demos";
+import type { PropsFor } from "../pathfinder/types/page-map";
+import Demos, {
+  type DemosLoginPayload,
+  type DemosNavigationQuery,
+} from "../pathfinder/actions/demos";
+import MinimalApi from "../pathfinder/actions/minimalapi";
 
-export default function Navigation({ encrypted }: { encrypted: boolean }) {
-  const page = usePage<Shared>();
+export default function Navigation({ encrypted }: PropsFor<"Navigation">) {
+  const page = usePage<PropsFor<"Navigation">>();
   const [note, setNote] = useRemember("", "kitchen-sink-note");
-  const login = useForm({ name: "" });
+  const login = useForm<DemosLoginPayload>({ name: "" });
   return (
     <>
       <Head title="Navigation & state" />
@@ -42,7 +46,7 @@ export default function Navigation({ encrypted }: { encrypted: boolean }) {
             />
           </label>
           <Link
-            href="/contacts"
+            href={Demos.contacts()}
             className="button secondary"
             prefetch="hover"
             cacheFor="30s"
@@ -51,13 +55,13 @@ export default function Navigation({ encrypted }: { encrypted: boolean }) {
           </Link>
           <Code>
             {
-              'const [note, setNote] = useRemember("", "note")\n\n<Link href="/contacts" prefetch="hover" />'
+              'const [note, setNote] = useRemember("", "note")\n\n<Link href={Demos.contacts()} prefetch="hover" />'
             }
           </Code>
         </section>
         <section className="panel">
           <h2>
-            {page.props.auth.name
+            {page.props.auth?.name
               ? `Hello, ${page.props.auth.name}.`
               : "A guest, for now."}
           </h2>
@@ -65,10 +69,12 @@ export default function Navigation({ encrypted }: { encrypted: boolean }) {
             This local demo uses a display-name cookie identity. It demonstrates
             shared authentication props; it has no password or account system.
           </p>
-          {page.props.auth.name ? (
+          {page.props.auth?.name ? (
             <>
               <p className="success-note" data-testid="member-message">
-                {page.props.memberMessage}
+                {typeof page.props.memberMessage === "string"
+                  ? page.props.memberMessage
+                  : null}
               </p>
               <button onClick={() => router.visit(Demos.logout())}>
                 Sign out & clear history
@@ -108,7 +114,9 @@ export default function Navigation({ encrypted }: { encrypted: boolean }) {
           </p>
           <Link
             className="button secondary"
-            href={`/navigation?encrypted=${!encrypted}`}
+            href={Demos.navigation({
+              query: { encrypted: !encrypted } satisfies DemosNavigationQuery,
+            })}
           >
             {encrypted ? "Disable" : "Enable"} history encryption
           </Link>
@@ -120,17 +128,21 @@ export default function Navigation({ encrypted }: { encrypted: boolean }) {
         <section className="panel" id="fragment-demo">
           <h2>Visits & redirects</h2>
           <div className="stack">
-            <a href="/navigation#fragment-demo">Set a URL fragment</a>
+            <a href={`${Demos.navigation.url()}#fragment-demo`}>
+              Set a URL fragment
+            </a>
             <button
               className="secondary"
-              onClick={() => router.post("/navigation/fragment")}
+              onClick={() => router.visit(Demos.fragment())}
             >
               Redirect & preserve fragment
             </button>
-            <Link href="/navigation/location">
+            <Link href={Demos.locationDemo()}>
               Try a full-location redirect ↗
             </Link>
-            <Link href="/minimal">Visit a Minimal API page ↗</Link>
+            <Link href={MinimalApi.getMinimal()}>
+              Visit a Minimal API page ↗
+            </Link>
           </div>
           <p className="muted">
             The location example returns 409 + X-Inertia-Location, then the

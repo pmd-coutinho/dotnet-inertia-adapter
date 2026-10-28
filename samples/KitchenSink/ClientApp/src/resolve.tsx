@@ -9,11 +9,15 @@ import Feed from "./pages/Feed";
 import Polling from "./pages/Polling";
 import Navigation from "./pages/Navigation";
 import { Rendering, ErrorPage, Minimal } from "./pages/Rendering";
+import type { ComponentName, PropsFor } from "./pathfinder/types/page-map";
 
-const pages: Record<
-  string,
-  ComponentType<any> & { layout?: (page: ReactNode) => ReactNode }
-> = {
+type PageRegistry = {
+  [Name in ComponentName]: ComponentType<PropsFor<Name>> & {
+    layout?: (page: ReactNode) => ReactNode;
+  };
+};
+
+const pages: PageRegistry = {
   Home,
   Contacts,
   Forms,
@@ -30,7 +34,7 @@ Object.values(pages).forEach((page) => {
   page.layout = (child) => <Layout>{child}</Layout>;
 });
 export function resolve(name: string) {
-  const page = pages[name];
-  if (!page) throw new Error(`Unknown kitchen sink page: ${name}`);
-  return page;
+  if (!Object.hasOwn(pages, name))
+    throw new Error(`Unknown kitchen sink page: ${name}`);
+  return pages[name as ComponentName];
 }

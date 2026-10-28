@@ -1,53 +1,58 @@
 import { Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { Shared } from "./types";
+import Demos from "./pathfinder/actions/demos";
 
 export const demos = [
-  { href: "/", name: "Overview", icon: "◈", detail: "Start exploring" },
   {
-    href: "/contacts",
+    href: Demos.home.url(),
+    name: "Overview",
+    icon: "◈",
+    detail: "Start exploring",
+  },
+  {
+    href: Demos.contacts.url(),
     name: "Contacts",
     icon: "◉",
     detail: "CRUD · search · pagination",
   },
   {
-    href: "/forms",
+    href: Demos.forms.url(),
     name: "Forms & uploads",
     icon: "▤",
     detail: "Validation · Precognition",
   },
   {
-    href: "/props",
+    href: Demos.props.url(),
     name: "Loading props",
     icon: "◷",
     detail: "Deferred · optional · once",
   },
   {
-    href: "/merging",
+    href: Demos.merging.url(),
     name: "Merging data",
     icon: "⇄",
     detail: "Append · prepend · deep merge",
   },
   {
-    href: "/feed",
+    href: Demos.feed.url(),
     name: "Infinite scroll",
     icon: "≋",
     detail: "Scroll-aware pagination",
   },
   {
-    href: "/polling",
+    href: Demos.polling.url(),
     name: "Live updates",
     icon: "◌",
     detail: "Polling · partial reloads",
   },
   {
-    href: "/navigation",
+    href: Demos.navigation.url(),
     name: "Navigation & state",
     icon: "↗",
     detail: "History · auth · prefetch",
   },
   {
-    href: "/rendering",
+    href: Demos.rendering.url(),
     name: "Rendering",
     icon: "⌘",
     detail: "SSR · fallback · errors",
@@ -55,7 +60,8 @@ export const demos = [
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const page = usePage<Shared>();
+  // Pathfinder augments Inertia's PageProps with the generated shared contract.
+  const page = usePage();
   const [events, setEvents] = useState<string[]>([]);
   const [inspect, setInspect] = useState(false);
   useEffect(() => {
@@ -73,13 +79,13 @@ export default function Layout({ children }: { children: ReactNode }) {
     );
     return () => remove.forEach((unsubscribe) => unsubscribe());
   }, []);
-  const current = page.url.split("?")[0];
+  const current = page.url.split(/[?#]/)[0];
   const flash =
     typeof page.flash?.message === "string" ? page.flash.message : "";
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link href="/" className="brand">
+        <Link href={Demos.home()} className="brand">
           <span className="brand-mark">i.</span>
           <span>
             InertiaNet<small>THE KITCHEN SINK</small>
@@ -129,8 +135,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           </span>
           <div>
             <span className="technology">.NET 10 + React</span>
-            <span className="avatar" title={page.props.auth.name ?? "Guest"}>
-              {(page.props.auth.name ?? "Guest")[0]}
+            <span className="avatar" title={page.props.auth?.name ?? "Guest"}>
+              {(page.props.auth?.name ?? "Guest")[0]}
             </span>
           </div>
         </header>
@@ -145,7 +151,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <footer>
           <span>
             <span className="status-dot" /> Request{" "}
-            <code data-testid="request-id">{page.props.request.id}</code>
+            <code data-testid="request-id">{page.props.request?.id}</code>
           </span>
           <button
             className="text-button"

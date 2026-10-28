@@ -1,12 +1,8 @@
 import { Head, InfiniteScroll } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
-import type { Entry } from "../types";
+import type { PropsFor } from "../pathfinder/types/page-map";
 
-export default function Feed({
-  feed,
-}: {
-  feed: { data: Entry[]; currentPage: number; nextPage: number | null };
-}) {
+export default function Feed({ feed }: PropsFor<"Feed">) {
   return (
     <>
       <Head title="Infinite scroll" />

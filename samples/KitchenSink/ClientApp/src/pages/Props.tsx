@@ -1,16 +1,7 @@
 import { Deferred, Head, router, usePage, WhenVisible } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
-import type { Shared } from "../types";
-
-type Props = {
-  initial: string;
-  optional?: { message: string; at: string };
-  metrics?: { label: string; value: string }[];
-  summary?: string;
-  fragile?: string;
-  once: { token: string; at: string };
-  visible?: string;
-};
+import type { PropsFor } from "../pathfinder/types/page-map";
+import Demos, { type DemosPropsQuery } from "../pathfinder/actions/demos";
 export default function Props({
   initial,
   optional,
@@ -19,8 +10,8 @@ export default function Props({
   fragile,
   once,
   visible,
-}: Props) {
-  const page = usePage<Shared>();
+}: PropsFor<"Props">) {
+  const page = usePage<PropsFor<"Props">>();
   return (
     <>
       <Head title="Loading props" />
@@ -92,9 +83,10 @@ export default function Props({
                 </p>
                 <button
                   onClick={() =>
-                    router.get(
-                      "/props",
-                      { recover: true },
+                    router.visit(
+                      Demos.props({
+                        query: { recover: true } satisfies DemosPropsQuery,
+                      }),
                       {
                         only: ["fragile"],
                         preserveState: true,
@@ -120,10 +112,10 @@ export default function Props({
           <span className="mini-label">ONCE · CACHED</span>
           <h2>Remember the useful bits.</h2>
           <p>
-            Page token: <code data-testid="once-token">{once.token}</code>
+            Page token: <code data-testid="once-token">{once?.token}</code>
           </p>
           <p className="muted">
-            Resolved at {once.at}. Cached for five minutes.
+            Resolved at {once?.at}. Cached for five minutes.
           </p>
           <button className="secondary" onClick={() => router.reload()}>
             Reload page props
@@ -131,7 +123,7 @@ export default function Props({
           <p>
             Global reference loaded at{" "}
             <code data-testid="reference-time">
-              {page.props.reference.loadedAt}
+              {page.props.reference?.loadedAt}
             </code>
             . Navigate between demos: the shared once prop keeps its timestamp.
           </p>

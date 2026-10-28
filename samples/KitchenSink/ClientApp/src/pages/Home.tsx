@@ -1,7 +1,9 @@
 import { Head, Link } from "@inertiajs/react";
 import { Code, demos, Intro } from "../Layout";
+import Demos from "../pathfinder/actions/demos";
+import type { PropsFor } from "../pathfinder/types/page-map";
 
-export default function Home({ contacts }: { contacts: number }) {
+export default function Home({ contacts }: PropsFor<"Home">) {
   return (
     <>
       <Head title="Kitchen sink">
@@ -32,7 +34,7 @@ export default function Home({ contacts }: { contacts: number }) {
             No separate API to maintain. Just controllers, page props, and the
             interface you wanted to build.
           </p>
-          <Link className="button" href="/contacts">
+          <Link className="button" href={Demos.contacts()}>
             Meet the contacts demo <span>↗</span>
           </Link>
         </div>

@@ -27,6 +27,10 @@ public sealed record Metric(string Label, string Value);
 public sealed record FeedEntry(int Id, string Title, string Team);
 public sealed record FeedPage(FeedEntry[] Data, int CurrentPage, int? NextPage);
 public sealed class DemoRenderException : Exception;
+public sealed class ErrorPageProps
+{
+    [InertiaPropType(typeof(string))] public required AlwaysProp Message { get; init; }
+}
 public sealed class MergingProps
 {
     public int Batch { get; init; }
@@ -179,8 +183,8 @@ public sealed class DemosController(IInertiaService inertia, ContactRepository r
     }
 
     [HttpGet("/rendering/error", Name = "Demos.error")]
-    public IActionResult ErrorDemo() => inertia.Render("Error", new
+    public IActionResult ErrorDemo() => inertia.Render("Error", new ErrorPageProps
     {
-        message = inertia.Always((_, _) => throw new DemoRenderException()),
+        Message = inertia.Always((_, _) => throw new DemoRenderException()),
     });
 }

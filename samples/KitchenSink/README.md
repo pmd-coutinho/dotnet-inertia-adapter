@@ -5,6 +5,43 @@ Pathfinder routes, and a persistent SQLite database. Each demo includes a short
 explanation and code example. The persistent layout has a response inspector
 showing props, protocol metadata, and recent client events.
 
+## Pathfinder throughout the sample
+
+All application links and explicit visits use generated controller or Minimal
+API helpers, including sidebar navigation, query-string filters, deferred retries,
+redirect demonstrations, and the full-page SSR links. Inertia links receive
+`Demos.contacts()`; native anchors use `Demos.contacts.url()` to keep ordinary
+browser navigation. The fragment demonstration appends its fragment to the
+generated navigation URL.
+
+Every page consumes `PropsFor<"ComponentName">` from the generated page map.
+The browser and SSR component registry is checked against `ComponentName`, so a
+new server-rendered component requires a matching client registration. Shared
+props come from Pathfinder's Inertia `PageProps` augmentation; there is no separate
+handwritten shared-prop or feed-entry interface.
+
+Contact, profile and sign-in forms use generated payload aliases; uploads derive
+their selected-file type from the generated form contract. The editing state
+allows `null` before a file is selected. Query objects use the generated query
+types with `satisfies` to catch misspelled names and incorrect value types.
+The upload flash receipt remains a local shape: Pathfinder does not currently
+generate flash-data contracts.
+
+```tsx
+import Demos, { type DemosStoreContactPayload } from './pathfinder/actions/demos'
+import type { PropsFor } from './pathfinder/types/page-map'
+
+const form = useForm<DemosStoreContactPayload>({ name: '', email: '', team: 'Design' })
+form.submit(Demos.storeContact(), { errorBag: 'contact' })
+
+function Contacts({ contacts }: PropsFor<'Contacts'>) { /* ... */ }
+```
+
+`npm run build` generates the contracts in strict mode before type-checking.
+`npm run check:contracts` checks existing generated output without rewriting it.
+`tests/pathfinder-contracts.ts` contains compile-time regression cases for DTOs,
+query fields/types, upload values, numeric IDs and component names.
+
 ## Run with Aspire
 
 Requires .NET 10 and Node 24. Docker is not required: the web app creates and seeds

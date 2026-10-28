@@ -1,20 +1,18 @@
 import { Head, router } from "@inertiajs/react";
 import { Code, Intro } from "../Layout";
-import type { Entry } from "../types";
+import type { PropsFor } from "../pathfinder/types/page-map";
+import Demos, { type DemosMergingQuery } from "../pathfinder/actions/demos";
 
 export default function Merging({
   batch,
   entries,
   preferences,
-}: {
-  batch: number;
-  entries: Entry[];
-  preferences: Record<string, unknown>;
-}) {
+}: PropsFor<"Merging">) {
   function load(next: number, direction = "append", reset = false) {
-    router.get(
-      "/merging",
-      { batch: next, direction },
+    router.visit(
+      Demos.merging({
+        query: { batch: next, direction } satisfies DemosMergingQuery,
+      }),
       {
         only: ["entries", "batch", "preferences"],
         preserveState: true,

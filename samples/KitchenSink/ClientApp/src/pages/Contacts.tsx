@@ -1,14 +1,20 @@
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import { useState, type FormEvent } from "react";
-import Demos from "../pathfinder/actions/demos";
+import Demos, {
+  type DemosStoreContactPayload,
+  type DemosContactsQuery,
+} from "../pathfinder/actions/demos";
 import type { PropsFor } from "../pathfinder/types/page-map";
 import { formFields } from "../pathfinder";
 import { Code, Intro } from "../Layout";
-import type { Shared } from "../types";
 
 export default function Contacts({ contacts, search }: PropsFor<"Contacts">) {
-  const { props } = usePage<Shared>();
-  const form = useForm({ name: "", email: "", team: "Design" });
+  const { props } = usePage<PropsFor<"Contacts">>();
+  const form = useForm<DemosStoreContactPayload>({
+    name: "",
+    email: "",
+    team: "Design",
+  });
   const [editing, setEditing] = useState<number | null>(null);
   const [query, setQuery] = useState(search);
   function submit(event: FormEvent) {
@@ -44,11 +50,16 @@ export default function Contacts({ contacts, search }: PropsFor<"Contacts">) {
             className="search-form"
             onSubmit={(event) => {
               event.preventDefault();
-              router.visit(Demos.contacts({ query: { search: query } }), {
-                only: ["contacts", "search"],
-                preserveState: true,
-                replace: true,
-              });
+              router.visit(
+                Demos.contacts({
+                  query: { search: query } satisfies DemosContactsQuery,
+                }),
+                {
+                  only: ["contacts", "search"],
+                  preserveState: true,
+                  replace: true,
+                },
+              );
             }}
           >
             <label className="sr-only" htmlFor="search">
@@ -175,7 +186,7 @@ export default function Contacts({ contacts, search }: PropsFor<"Contacts">) {
                   value={form.data.team}
                   onChange={(event) => form.setData("team", event.target.value)}
                 >
-                  {props.reference.teams.map((team) => (
+                  {props.reference?.teams.map((team) => (
                     <option key={team}>{team}</option>
                   ))}
                 </select>
@@ -217,7 +228,7 @@ export default function Contacts({ contacts, search }: PropsFor<"Contacts">) {
                 <input
                   type="hidden"
                   name="__RequestVerificationToken"
-                  value={props.xsrfToken}
+                  value={props.xsrfToken ?? ""}
                 />
                 <button className="secondary">
                   Delete first contact natively

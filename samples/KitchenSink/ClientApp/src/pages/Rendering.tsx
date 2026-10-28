@@ -1,8 +1,10 @@
 import { Head, Link } from "@inertiajs/react";
 import { useEffect, useState } from "react";
 import { Code, Intro } from "../Layout";
+import Demos, { type DemosRenderingQuery } from "../pathfinder/actions/demos";
+import type { PropsFor } from "../pathfinder/types/page-map";
 
-export function Rendering({ mode }: { mode: string }) {
+export function Rendering({ mode }: PropsFor<"Rendering">) {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
   return (
@@ -29,13 +31,23 @@ export function Rendering({ mode }: { mode: string }) {
           already render on the client.
         </p>
         <div className="toolbar">
-          <a className="button" href="/rendering">
+          <a className="button" href={Demos.rendering.url()}>
             Request SSR ↗
           </a>
-          <a className="button secondary" href="/rendering?csr=true">
+          <a
+            className="button secondary"
+            href={Demos.rendering.url({
+              query: { csr: true } satisfies DemosRenderingQuery,
+            })}
+          >
             Skip SSR for this request
           </a>
-          <a className="button secondary" href="/rendering?failSsr=true">
+          <a
+            className="button secondary"
+            href={Demos.rendering.url({
+              query: { failSsr: true } satisfies DemosRenderingQuery,
+            })}
+          >
             Simulate SSR failure
           </a>
         </div>
@@ -51,14 +63,14 @@ export function Rendering({ mode }: { mode: string }) {
           Trigger an intentional exception to see the configured exception
           handler return an Inertia error page with HTTP status 500.
         </p>
-        <Link href="/rendering/error" className="button secondary">
+        <Link href={Demos.errorDemo()} className="button secondary">
           Try the error page →
         </Link>
       </section>
     </>
   );
 }
-export function ErrorPage({ message }: { message: string }) {
+export function ErrorPage({ message }: PropsFor<"Error">) {
   return (
     <>
       <Head title="Demo error" />
@@ -76,14 +88,14 @@ export function ErrorPage({ message }: { message: string }) {
           sample sets the HTTP error status before headers are sent. The
           persistent layout keeps the application navigable.
         </p>
-        <Link href="/rendering" className="button">
+        <Link href={Demos.rendering()} className="button">
           Back to rendering →
         </Link>
       </section>
     </>
   );
 }
-export function Minimal({ message }: { message: string }) {
+export function Minimal({ message }: PropsFor<"Minimal">) {
   return (
     <>
       <Head title="Minimal API" />
@@ -101,7 +113,7 @@ export function Minimal({ message }: { message: string }) {
             'app.MapGet("/minimal", (IInertiaService inertia) =>\n    inertia.Render("Minimal", new { message = "Hello!" }));'
           }
         </Code>
-        <Link href="/navigation">← Back to navigation</Link>
+        <Link href={Demos.navigation()}>← Back to navigation</Link>
       </section>
     </>
   );

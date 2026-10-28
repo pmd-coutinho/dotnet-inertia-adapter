@@ -157,7 +157,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: samples/KitchenSink/ClientApp/package-lock.json
-      - run: dotnet build ../KitchenSink.AppHost/KitchenSink.AppHost.csproj
+      - run: dotnet build ../../KitchenSink.AppHost/KitchenSink.AppHost.csproj
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
