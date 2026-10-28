@@ -133,7 +133,14 @@ export default function Navigation({ encrypted }: PropsFor<"Navigation">) {
             </a>
             <button
               className="secondary"
-              onClick={() => router.visit(Demos.fragment())}
+              onClick={() => {
+                const action = Demos.fragment();
+                // Inertia preserves the outgoing visit's hash, not the current page's hash.
+                router.visit({
+                  ...action,
+                  url: action.url + window.location.hash,
+                });
+              }}
             >
               Redirect & preserve fragment
             </button>
@@ -144,6 +151,10 @@ export default function Navigation({ encrypted }: PropsFor<"Navigation">) {
               Visit a Minimal API page ↗
             </Link>
           </div>
+          <p className="muted">
+            The outgoing visit includes the current URL fragment. The server's
+            preserveFragment flag keeps that fragment across its redirect.
+          </p>
           <p className="muted">
             The location example returns 409 + X-Inertia-Location, then the
             browser makes a full visit to this sample.

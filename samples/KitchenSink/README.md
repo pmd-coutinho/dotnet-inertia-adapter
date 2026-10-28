@@ -13,6 +13,9 @@ redirect demonstrations, and the full-page SSR links. Inertia links receive
 `Demos.contacts()`; native anchors use `Demos.contacts.url()` to keep ordinary
 browser navigation. The fragment demonstration appends its fragment to the
 generated navigation URL.
+The redirect button also copies the current fragment onto its generated POST
+URL: Inertia's `preserveFragment` response flag preserves the outgoing visit's
+fragment, which browsers never send to the server.
 
 Every page consumes `PropsFor<"ComponentName">` from the generated page map.
 The browser and SSR component registry is checked against `ComponentName`, so a

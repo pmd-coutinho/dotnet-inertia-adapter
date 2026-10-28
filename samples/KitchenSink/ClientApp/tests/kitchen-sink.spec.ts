@@ -232,10 +232,14 @@ test("remembered state, shared auth, history encryption and fragments", async ({
     '"encryptHistory": true',
   );
   await page.getByRole("link", { name: "Set a URL fragment" }).click();
+  await expect(page).toHaveURL(/#fragment-demo$/);
   await page
     .getByRole("button", { name: "Redirect & preserve fragment" })
     .click();
   await expect(page).toHaveURL(/#fragment-demo$/);
+  await expect(page.getByTestId("flash")).toContainText(
+    "Redirected while preserving your URL fragment.",
+  );
   await page.getByRole("button", { name: "Sign out & clear history" }).click();
   await expect(
     page.getByRole("heading", { name: "A guest, for now." }),
@@ -244,6 +248,25 @@ test("remembered state, shared auth, history encryption and fragments", async ({
   await expect(page.getByTestId("page-json")).toContainText(
     '"clearHistory": true',
   );
+});
+
+test("redirects preserve an arbitrary fragment from the outgoing visit", async ({
+  page,
+}) => {
+  await page.goto("/navigation#another-section");
+  const redirectedPage = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/navigation" &&
+      response.headers()["x-inertia"] === "true",
+  );
+  await page
+    .getByRole("button", { name: "Redirect & preserve fragment" })
+    .click();
+  expect((await (await redirectedPage).json()).preserveFragment).toBe(true);
+  await expect(page.getByTestId("flash")).toContainText(
+    "Redirected while preserving your URL fragment.",
+  );
+  await expect(page).toHaveURL(/\/navigation#another-section$/);
 });
 
 test("SSR opt-out and SSR failures fall back to interactive client rendering", async ({
