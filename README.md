@@ -999,4 +999,4 @@ have additional setup documented in the [playground contract](./samples/Playgrou
 
 ## License
 
-MIT
+[MIT](./LICENSE)
