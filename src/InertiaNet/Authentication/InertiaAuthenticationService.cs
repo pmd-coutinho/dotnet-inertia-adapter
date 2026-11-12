@@ -45,10 +45,12 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
         var request = context.Request;
         var response = context.Response;
 
-        // A prefetch must not start a sign-in flow: a remote handler would set correlation/nonce
-        // cookies for a callback that may never happen. If the prefetched response is used, the
-        // client reloads the page itself and that full-page request is challenged normally. A path
-        // such as //host/x would be a protocol-relative location, so it is challenged instead.
+        // A prefetch must not start a sign-in flow: a remote handler such as OpenID Connect would
+        // mint a protected state and set nonce/correlation cookies (and run its redirect events) for
+        // a page the user may never visit, and nothing would consume them. If the prefetched
+        // response is used, the client reloads the page itself and that full-page request is
+        // challenged normally. A path such as //host/x would be a protocol-relative location, so
+        // it is challenged instead.
         if (kind == RequestKind.Inertia && IsPrefetch(request))
         {
             var self = request.PathBase + request.Path + request.QueryString;
@@ -136,6 +138,12 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
         context.Items[LocationVisitItemKey] = true;
     }
 
+    // An X-Inertia request to a path that InertiaOptions.RequestPredicate excludes is not an
+    // Inertia visit. When its Accept prefers HTML, as the Inertia client's does, the default API
+    // predicate skips it (the Sec-Fetch-Mode rule ignores X-Inertia requests), so it keeps the
+    // scheme's own answer. That is intended: an Inertia visit to an API path is a client bug, and
+    // translating it would hide the bug behind a full-page reload. With Accept: */* or no Accept
+    // header, the excluded-path rule selects it as an API request.
     private RequestKind Classify(HttpContext context)
     {
         var requestPredicate = context.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate;
