@@ -15,7 +15,7 @@ Request lifecycle middleware connects shared props, asset versions, TempData, re
 ## Invariants
 
 - Root view and version are resolved once into request-local settings, using subclass overrides before option defaults. Responses vary on `X-Inertia`.
-- A GET Inertia version mismatch with a non-null server version returns `409` with `X-Inertia-Location` before consuming forwarded state or running the handler. Protocol `409` responses from the version and fragment hooks disable status code pages for the request, so `UseStatusCodePages` cannot replace them.
+- A GET Inertia version mismatch with a non-null server version returns `409` with `X-Inertia-Location` before consuming forwarded state or running the handler. The location is the original request URL, also when the check runs while an error route is re-executed. Protocol `409` responses from the version and fragment hooks disable status code pages for the request, so `UseStatusCodePages` cannot replace them.
 - An always-included empty `errors` prop is shared before custom sharing/CSRF hooks. TempData support is optional; missing support logs a warning.
 - Prefetch requests skip middleware TempData restoration, consumption, and persistence. Application hooks and antiforgery services retain their own behavior.
 - Ordinary visits restore forwarded errors, flash, and history flags and consume their entries. Redirects persist accumulated flash/history state when TempData is available.

@@ -1,7 +1,6 @@
 using InertiaNet.Resolution;
 using InertiaNet.Ssr;
 using InertiaNet.Support;
-using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -28,9 +27,10 @@ namespace InertiaNet.Core;
 /// with the X-Inertia: true response header.
 /// </para>
 /// <para>
-/// Both responses keep the status code already on the response (200 unless application code,
-/// <c>UseExceptionHandler</c> or status-code-page re-execution changed it). Use
-/// <see cref="WithStatus(int)"/> to render a page such as a 404 or 500 error page with an explicit status.
+/// Use <see cref="WithStatus(int)"/> to render a page such as a 404 or 500 error page with an explicit
+/// status. Otherwise both responses keep the status code already on the response (200 unless application
+/// code, <c>UseExceptionHandler</c> or status-code-page re-execution changed it), except that the JSON
+/// response falls back to 200 when that status cannot carry a page.
 /// </para>
 /// </summary>
 public sealed class InertiaResult : IActionResult, IResult
@@ -105,6 +105,8 @@ public sealed class InertiaResult : IActionResult, IResult
         var options = _options.Value;
         var requestSettings = InertiaRequestSettings.Resolve(httpContext, options);
         var initialStatusCode = httpContext.Response.StatusCode;
+        var initialCacheControl = httpContext.Response.Headers.CacheControl;
+        string? prefetchCacheControl = null;
 
         try
         {
@@ -146,24 +148,28 @@ public sealed class InertiaResult : IActionResult, IResult
             // Always set Vary: X-Inertia (append, don't overwrite)
             InertiaResponseHeaders.AppendVary(httpContext.Response, HeaderNames.Inertia);
 
-            // Prefetch cache headers
+            var statusCode = ResolveStatusCode(httpContext.Response.StatusCode, isInertiaRequest);
+
+            // Prefetch cache headers. Only successful pages may be cached: an error page must not be
+            // served from the browser's HTTP cache after the error has gone away.
             var isPrefetch = httpContext.Request.Headers.TryGetValue(HeaderNames.Purpose, out var purpose)
                 && purpose.ToString().Equals("prefetch", StringComparison.OrdinalIgnoreCase);
 
-            if (isPrefetch)
+            if (isPrefetch && statusCode is >= 200 and < 300)
             {
                 var maxAge = httpContext.Request.Headers.TryGetValue(HeaderNames.Prefetch, out var prefetchDuration)
                     && int.TryParse(prefetchDuration, out var clientMaxAge)
                     ? clientMaxAge
                     : options.PrefetchCacheMaxAge;
 
-                httpContext.Response.Headers.CacheControl = $"private, max-age={maxAge}";
+                prefetchCacheControl = $"private, max-age={maxAge}";
+                httpContext.Response.Headers.CacheControl = prefetchCacheControl;
             }
 
             async Task WritePageAsync()
             {
-                if (isInertiaRequest) await WriteJsonResponseAsync(httpContext, page, ct);
-                else await WriteHtmlResponseAsync(httpContext, actionContext, page, services, requestSettings, ct);
+                if (isInertiaRequest) await WriteJsonResponseAsync(httpContext, page, statusCode, ct);
+                else await WriteHtmlResponseAsync(httpContext, actionContext, page, statusCode, services, requestSettings, ct);
             }
             if (httpContext.Items.TryGetValue(PropDiagnosticsTrace.ContextKey, out var trace) && trace is PropDiagnosticsTrace diagnostics)
                 await diagnostics.MeasureRenderAsync(httpContext, _component, isInertiaRequest ? "json" : "html", WritePageAsync);
@@ -178,9 +184,13 @@ public sealed class InertiaResult : IActionResult, IResult
             // Delegate to the configured exception handler; if it returns null, rethrow.
             httpContext.Items[InertiaContextKeys.ExceptionHandlerActiveKey] = true;
 
-            // Do not let this result's own status leak into the handler's response.
+            // Do not let this result's own status or prefetch caching leak into the handler's response.
             if (!httpContext.Response.HasStarted)
+            {
                 httpContext.Response.StatusCode = initialStatusCode;
+                if (prefetchCacheControl is not null && httpContext.Response.Headers.CacheControl == prefetchCacheControl)
+                    httpContext.Response.Headers.CacheControl = initialCacheControl;
+            }
 
             try
             {
@@ -222,7 +232,7 @@ public sealed class InertiaResult : IActionResult, IResult
         {
             Component = _component,
             Props = resolvedProps,
-            Url = GetUrl(httpContext),
+            Url = InertiaRequestUrl.GetOriginalUrl(httpContext),
             Version = requestSettings.Version,
             SharedProps = options.ExposeSharedPropKeys && metadata.SharedPropKeys?.Count > 0
                 ? metadata.SharedPropKeys
@@ -244,20 +254,12 @@ public sealed class InertiaResult : IActionResult, IResult
         };
     }
 
-    private static string GetUrl(HttpContext httpContext)
+    // JSON keeps a status set by the application or the error-handling middleware; statuses that cannot
+    // carry a page body fall back to 200, the previous behaviour. HTML applies only an explicit status.
+    private int ResolveStatusCode(int currentStatusCode, bool isInertiaRequest)
     {
-        var req = httpContext.Request;
-
-        // Error pages rendered by re-executing the pipeline describe the original request,
-        // so the client keeps the URL the user visited rather than the error route.
-        if (httpContext.Features.Get<IStatusCodeReExecuteFeature>() is { } statusCodeReExecute)
-            return statusCodeReExecute.OriginalPathBase + statusCodeReExecute.OriginalPath
-                + statusCodeReExecute.OriginalQueryString;
-
-        if (httpContext.Features.Get<IExceptionHandlerPathFeature>() is { Path: { Length: > 0 } originalPath })
-            return req.PathBase + originalPath + req.QueryString;
-
-        return req.PathBase + req.Path + req.QueryString;
+        var statusCode = _statusCode ?? currentStatusCode;
+        return !isInertiaRequest || CanCarryPage(statusCode) ? statusCode : StatusCodes.Status200OK;
     }
 
     private static bool CanCarryPage(int statusCode)
@@ -267,12 +269,9 @@ public sealed class InertiaResult : IActionResult, IResult
     // ── JSON response (XHR Inertia request) ──────────────────────────────────
 
     private async Task WriteJsonResponseAsync(
-        HttpContext httpContext, InertiaPage page, CancellationToken ct)
+        HttpContext httpContext, InertiaPage page, int statusCode, CancellationToken ct)
     {
-        // Keep a status set by the application or the error-handling middleware. Statuses that
-        // cannot carry a page body fall back to 200, the previous behaviour.
-        var statusCode = _statusCode ?? httpContext.Response.StatusCode;
-        httpContext.Response.StatusCode = CanCarryPage(statusCode) ? statusCode : StatusCodes.Status200OK;
+        httpContext.Response.StatusCode = statusCode;
         httpContext.Response.Headers[HeaderNames.Inertia] = "true";
         httpContext.Response.ContentType = "application/json";
 
@@ -289,6 +288,7 @@ public sealed class InertiaResult : IActionResult, IResult
         HttpContext httpContext,
         ActionContext? actionContext,
         InertiaPage page,
+        int statusCode,
         IServiceProvider services,
         InertiaRequestSettings requestSettings,
         CancellationToken ct)
@@ -315,7 +315,7 @@ public sealed class InertiaResult : IActionResult, IResult
         httpContext.Items[InertiaContextKeys.PageKey] = page;
         httpContext.Items[InertiaContextKeys.SsrResponseKey] = ssrResponse;
 
-        if (_statusCode is { } statusCode)
+        if (httpContext.Response.StatusCode != statusCode)
             httpContext.Response.StatusCode = statusCode;
 
         if (actionContext is not null)

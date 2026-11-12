@@ -21,14 +21,14 @@ The scoped service and MVC/Minimal API result coordinate props, protocol pages, 
 - Execution validates page existence when enabled, resolves props, runs `OnAfterResolveProps`, builds the page, runs `OnBeforeRender`, and writes the selected response. Cancellation comes from `RequestAborted`.
 - `X-Inertia` header presence selects JSON with `X-Inertia: true`; initial requests render the root Razor view with optional SSR. Responses vary on `X-Inertia`.
 - Both responses use the `WithStatus` status when set (2xx except 204/205, or 4xx/5xx). Otherwise they keep the status already on the response, so pages rendered under `UseExceptionHandler` or status-code-page re-execution keep the error status. JSON falls back to `200` when the existing status cannot carry a page. A custom exception handler's result starts from the status the response had before the failed render.
-- Middleware-resolved root view/version settings are reused. The page URL includes path base, path, and query string. During status-code-page re-execution it is the original request URL, and under `UseExceptionHandler` it uses the original path.
+- Middleware-resolved root view/version settings are reused. The page URL includes path base, path, and query string. During status-code-page re-execution it is the original request URL, and under `UseExceptionHandler` it uses the original path (internal `InertiaRequestUrl.GetOriginalUrl`).
 - Protocol envelope names remain fixed under application JSON naming policies; null optional fields are omitted. History and large-integer flags are set only when enabled by response construction.
 - Application converters retain precedence over the numeric policy. Props and flash use value serialization; protocol metadata bypasses large-integer transport conversion.
 - SSR applies only to HTML rendering through a registered gateway, after combining global and request-local exclusions. Page and SSR state are stored in request items for Razor helpers.
 - `Location` returns `409` with `X-Inertia-Location` for an active Inertia request, otherwise a standard redirect. Protocol `409` responses (location, version conflict, fragment redirect) disable status code pages for the request. `WithoutSsr()` without paths records the current request path.
 - Defaults include root view `App`, disabled SSR, a three-second SSR timeout, disabled page-file checks, disabled diagnostics, and enabled Vite manifest caching.
 - `RequestPredicate` defaults to every path and scopes middleware plus validation/Precognition filters. `RedirectEmptyResponses` defaults to true and can preserve empty responses when disabled. Vite supports request-local `NonceProvider` and optional build-time `IntegrityKey` metadata.
-- Prefetch sets private cache-control using a parsed client duration or the configured default. Custom exception handling accepts `IResult`, `IActionResult`, or `null`, prevents recursive handling, and preserves caller cancellation.
+- Prefetch sets private cache-control using a parsed client duration or the configured default, only when the response status is 2xx; error pages are not made cacheable, and a custom exception handler's result does not inherit the header. Custom exception handling accepts `IResult`, `IActionResult`, or `null`, prevents recursive handling, and preserves caller cancellation.
 
 ## Side Effects
 

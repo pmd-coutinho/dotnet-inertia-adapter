@@ -691,11 +691,26 @@ status. For a status of 400 or above it first fires the cancelable `httpExceptio
 visit's `onHttpException` callback. Returning `false` or calling `preventDefault()` there stops
 the page from rendering.
 
+Once an error page renders, the client finishes the visit as it would for any other page: unless the
+page has validation `errors`, it fires the `success` event and the visit's `onSuccess` callback, and
+flushes the prefetch cache for the page URL. A handler such as `form.post(url, { onSuccess: () =>
+form.reset() })` therefore also runs after a 500 page. Check `page.component` there, or cancel the
+`httpException` event, if that matters. The Laravel adapter behaves the same way.
+
 ### Application error pages
 
 ASP.NET Core's exception handler and status code pages can render an Inertia error page. Both
-re-execute the pipeline, so the Inertia middleware shares its props as usual. The page `url` is the
-URL of the original request, not the error route, so the browser address does not change.
+re-execute the pipeline on the error route. The page `url`, and the `X-Inertia-Location` of an asset
+version conflict detected on the error route, is the URL of the original request, not the error
+route, so the browser address does not change.
+
+On re-execution the Inertia middleware runs again only when `UseInertia` comes after the error
+middlewares and `RequestPredicate` matches the error path. It then calls `Share` again and shares
+an empty `errors` prop. When the error was raised after `UseInertia`, the first pass has already
+consumed validation errors forwarded from a previous redirect, so they are not on the error page,
+while flash data is kept. Laravel's exception
+responses leave shared data out by default, so keep error pages independent of shared props where
+you can.
 
 ```csharp
 var app = builder.Build();
@@ -708,7 +723,9 @@ app.UseInertia();
 app.MapControllers();
 
 // Map, not MapGet: re-execution keeps the original method, so a failed POST arrives as a POST.
-app.Map("/error/{status:int}", (int status, IInertiaService inertia) =>
+// The range constraint limits the route to error statuses, so /error/302 gets a 404 page
+// instead of failing in WithStatus.
+app.Map("/error/{status:int:range(400,599)}", (int status, IInertiaService inertia) =>
     inertia.Render("Errors/Status", new { status }).WithStatus(status));
 ```
 

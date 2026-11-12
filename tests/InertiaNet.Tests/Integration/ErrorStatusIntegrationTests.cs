@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -40,7 +42,36 @@ internal sealed class StatusPreservingViewResultExecutor : IActionResultExecutor
     }
 }
 
+/// <summary>
+/// Resolves every view to <see cref="StubRootView"/>, so the framework's own <c>ViewResultExecutor</c>
+/// and <c>ViewExecutor</c> run without compiled Razor views.
+/// </summary>
+internal sealed class StubRootViewEngine : IViewEngine
+{
+    public ViewEngineResult FindView(ActionContext context, string viewName, bool isMainPage)
+        => ViewEngineResult.Found(viewName, new StubRootView(viewName));
+
+    public ViewEngineResult GetView(string? executingFilePath, string viewPath, bool isMainPage)
+        => ViewEngineResult.Found(viewPath, new StubRootView(viewPath));
+}
+
+internal sealed class StubRootView(string path) : IView
+{
+    public string Path { get; } = path;
+
+    public Task RenderAsync(ViewContext context)
+    {
+        var page = context.ViewData.Model as InertiaPage;
+        return context.Writer.WriteAsync($"{page?.Component}|{page?.Url}");
+    }
+}
+
 public sealed class ErrorStatusProbeException : Exception;
+
+public sealed class ErrorStatusThrowingValue
+{
+    public string Value => throw new ErrorStatusProbeException();
+}
 
 [Route("error-status/mvc")]
 public sealed class ErrorStatusProbeController : Controller
@@ -249,17 +280,141 @@ public class ErrorStatusIntegrationTests
         (await jsonResponse.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render");
     }
 
+    [Fact]
+    public async Task HandleExceptionsUsing_ShouldNotKeepThePrefetchCacheHeader_WhenSerializationFails()
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreatePrefetchRequest("/minimal/serialization-failure");
+        using var response = await app.Client.SendAsync(request);
+
+        (await response.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render");
+        (response.Headers.CacheControl?.MaxAge).Should().BeNull();
+    }
+
+    // ── Errors raised before the Inertia middleware ──────────────────────────
+
+    [Fact]
+    public async Task PreInertiaErrors_ShouldRenderTheOriginalStatusAndUrl()
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, "/admin/users?tab=2");
+        using var response = await app.Client.SendAsync(request);
+        var page = await response.AssertInertiaAsync(HttpStatusCode.Forbidden);
+
+        page.HasComponent("Errors/Status").HasUrl("/admin/users?tab=2").HasProp("status", 403);
+    }
+
+    [Theory]
+    [InlineData("/admin/users?tab=2")]
+    [InlineData("/pre-inertia/throws?id=3")]
+    public async Task VersionConflicts_DuringErrorReExecution_ShouldPointAtTheOriginalUrl(string path)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, path);
+        request.Headers.Remove(HeaderNames.Version);
+        request.Headers.Add(HeaderNames.Version, "stale-version");
+        using var response = await app.Client.SendAsync(request);
+
+        response.AssertVersionRedirect().To(path);
+        response.Headers.Contains(HeaderNames.Inertia).Should().BeFalse();
+    }
+
+    // ── Error route ──────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("/error/302")]
+    [InlineData("/error/200")]
+    [InlineData("/error/999")]
+    public async Task ErrorRoute_ShouldNotRenderStatusesOutsideTheErrorRange(string path)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, path);
+        using var response = await app.Client.SendAsync(request);
+        var page = await response.AssertInertiaAsync(HttpStatusCode.NotFound);
+
+        page.HasComponent("Errors/Status").HasUrl(path).HasProp("status", 404);
+    }
+
+    // ── Prefetch ─────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("/does-not-exist", HttpStatusCode.NotFound)]
+    [InlineData("/minimal/forbidden", HttpStatusCode.Forbidden)]
+    [InlineData("/minimal/throws", HttpStatusCode.InternalServerError)]
+    public async Task PrefetchedErrorPages_ShouldNotBeCacheable(string path, HttpStatusCode expected)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreatePrefetchRequest(path);
+        using var response = await app.Client.SendAsync(request);
+
+        await response.AssertInertiaAsync(expected);
+        (response.Headers.CacheControl?.MaxAge).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PrefetchedPages_ShouldStillBeCacheable()
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreatePrefetchRequest("/dashboard");
+        using var response = await app.Client.SendAsync(request);
+
+        await response.AssertInertiaAsync();
+        response.Headers.CacheControl.Should().NotBeNull();
+        response.Headers.CacheControl!.Private.Should().BeTrue();
+        response.Headers.CacheControl!.MaxAge.Should().Be(TimeSpan.FromSeconds(10));
+    }
+
+    // ── Framework view executor ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("/error-status/mvc/missing", HttpStatusCode.NotFound, "/error-status/mvc/missing")]
+    [InlineData("/minimal/forbidden", HttpStatusCode.Forbidden, "/minimal/forbidden")]
+    [InlineData("/dashboard", HttpStatusCode.OK, "/dashboard")]
+    [InlineData("/does-not-exist?page=2", HttpStatusCode.NotFound, "/does-not-exist?page=2")]
+    [InlineData("/minimal/throws?id=7", HttpStatusCode.InternalServerError, "/minimal/throws?id=7")]
+    public async Task FrameworkViewExecutor_ShouldKeepTheResponseStatus(string path, HttpStatusCode expected, string url)
+    {
+        await using var app = await CreateAppAsync(explicitErrorStatus: false, frameworkViewExecutor: true);
+
+        using var response = await app.Client.GetAsync(path);
+
+        response.StatusCode.Should().Be(expected);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
+        (await response.Content.ReadAsStringAsync()).Should().EndWith($"|{url}");
+    }
+
     /// <param name="explicitErrorStatus">
     /// When false the error endpoint renders without <c>WithStatus</c> and relies on the status the
     /// exception handler or status code pages middleware left on the response.
     /// </param>
-    private static async Task<TestApp> CreateAppAsync(bool explicitErrorStatus = true)
+    /// <param name="frameworkViewExecutor">
+    /// When true the framework's view executor renders <see cref="StubRootView"/> instead of
+    /// <see cref="StatusPreservingViewResultExecutor"/> handling the view result.
+    /// </param>
+    private static async Task<TestApp> CreateAppAsync(bool explicitErrorStatus = true, bool frameworkViewExecutor = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
 
         builder.Services.AddControllersWithViews().AddApplicationPart(typeof(ErrorStatusProbeController).Assembly);
-        builder.Services.Replace(ServiceDescriptor.Singleton<IActionResultExecutor<ViewResult>, StatusPreservingViewResultExecutor>());
+        if (frameworkViewExecutor)
+        {
+            builder.Services.Configure<MvcViewOptions>(options =>
+            {
+                options.ViewEngines.Clear();
+                options.ViewEngines.Add(new StubRootViewEngine());
+            });
+        }
+        else
+        {
+            builder.Services.Replace(ServiceDescriptor.Singleton<IActionResultExecutor<ViewResult>, StatusPreservingViewResultExecutor>());
+        }
         builder.Services.AddInertia(options =>
         {
             options.RootView = "App";
@@ -277,10 +432,26 @@ public class ErrorStatusIntegrationTests
         // The documented error-page pattern: both middlewares re-execute the pipeline on /error/{status}.
         app.UseExceptionHandler("/error/500");
         app.UseStatusCodePagesWithReExecute("/error/{0}");
+
+        // Errors produced before the Inertia middleware, such as authorization or rate limiting.
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/admin"))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+
+            if (context.Request.Path.StartsWithSegments("/pre-inertia/throws"))
+                throw new InvalidOperationException("Boom");
+
+            await next();
+        });
+
         app.UseInertia();
 
         app.MapControllers();
-        app.Map("/error/{status:int}", (int status, IInertiaService inertia) =>
+        app.Map("/error/{status:int:range(400,599)}", (int status, IInertiaService inertia) =>
         {
             var page = inertia.Render("Errors/Status", new { status });
             return explicitErrorStatus ? page.WithStatus(status) : page;
@@ -297,6 +468,10 @@ public class ErrorStatusIntegrationTests
         {
             ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException()),
         }));
+        app.MapGet("/minimal/serialization-failure", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = new ErrorStatusThrowingValue(),
+        }));
 
         await app.StartAsync();
 
@@ -308,6 +483,13 @@ public class ErrorStatusIntegrationTests
         var request = new HttpRequestMessage(method, uri);
         request.Headers.Add(HeaderNames.Inertia, "true");
         request.Headers.Add(HeaderNames.Version, "server-version");
+        return request;
+    }
+
+    private static HttpRequestMessage CreatePrefetchRequest(string uri)
+    {
+        var request = CreateInertiaRequest(HttpMethod.Get, uri);
+        request.Headers.Add(HeaderNames.Purpose, "prefetch");
         return request;
     }
 
