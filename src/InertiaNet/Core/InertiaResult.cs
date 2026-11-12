@@ -30,7 +30,8 @@ namespace InertiaNet.Core;
 /// Use <see cref="WithStatus(int)"/> to render a page such as a 404 or 500 error page with an explicit
 /// status. Otherwise both responses keep the status code already on the response (200 unless application
 /// code, <c>UseExceptionHandler</c> or status-code-page re-execution changed it), except that the JSON
-/// response falls back to 200 when that status cannot carry a page.
+/// response falls back to 200 when that status cannot carry a page. A page returned by
+/// <see cref="InertiaOptions.HandleExceptionsUsing"/> without <see cref="WithStatus(int)"/> is sent with 500.
 /// </para>
 /// </summary>
 public sealed class InertiaResult : IActionResult, IResult
@@ -72,7 +73,8 @@ public sealed class InertiaResult : IActionResult, IResult
     /// The Inertia client renders any response carrying the <c>X-Inertia</c> header as a page. For a
     /// status of 400 or above it first raises the cancelable <c>httpException</c> event and the
     /// visit's <c>onHttpException</c> callback.
-    /// Without this call the status already on the response is kept.
+    /// Without this call the status already on the response is kept, except that a page returned by
+    /// <see cref="InertiaOptions.HandleExceptionsUsing"/> is sent with 500.
     /// </remarks>
     /// <param name="statusCode">A status that can carry a page body: 2xx except 204 and 205, or 4xx/5xx.</param>
     /// <exception cref="ArgumentOutOfRangeException">The status is informational, a redirect, or bodiless.</exception>
@@ -152,7 +154,7 @@ public sealed class InertiaResult : IActionResult, IResult
             // Always set Vary: X-Inertia (append, don't overwrite)
             InertiaResponseHeaders.AppendVary(httpContext.Response, HeaderNames.Inertia);
 
-            var statusCode = ResolveStatusCode(httpContext.Response.StatusCode, isInertiaRequest);
+            var statusCode = ResolveStatusCode(httpContext, isInertiaRequest);
 
             // Prefetch cache headers. Only successful pages may be cached: an error page must not be
             // served from the browser's HTTP cache after the error has gone away.
@@ -258,11 +260,16 @@ public sealed class InertiaResult : IActionResult, IResult
         };
     }
 
-    // JSON keeps a status set by the application or the error-handling middleware; statuses that cannot
-    // carry a page body fall back to 200, the previous behaviour. HTML applies only an explicit status.
-    private int ResolveStatusCode(int currentStatusCode, bool isInertiaRequest)
+    // An explicit status always wins. A page returned by HandleExceptionsUsing reports the failed render as a
+    // 500, as Laravel's exception responses carry the real status. Otherwise JSON keeps a status set by the
+    // application or the error-handling middleware; statuses that cannot carry a page body fall back to 200,
+    // the previous behaviour. HTML keeps the status on the response.
+    private int ResolveStatusCode(HttpContext httpContext, bool isInertiaRequest)
     {
-        var statusCode = _statusCode ?? currentStatusCode;
+        var statusCode = _statusCode
+            ?? (httpContext.Items.ContainsKey(InertiaContextKeys.ExceptionHandlerActiveKey)
+                ? StatusCodes.Status500InternalServerError
+                : httpContext.Response.StatusCode);
         return !isInertiaRequest || CanCarryPage(statusCode) ? statusCode : StatusCodes.Status200OK;
     }
 

@@ -108,7 +108,8 @@ public class InertiaResultTests
 
         await result.ExecuteAsync(context);
 
-        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+        // Without WithStatus the handler's page reports the failed render as a 500.
+        context.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         var body = await context.ReadResponseBodyAsync();
         using var doc = JsonDocument.Parse(body);
         doc.RootElement.GetProperty("component").GetString().Should().Be("Errors/ServerError");
@@ -255,9 +256,41 @@ public class InertiaResultTests
 
         await result.WithStatus(StatusCodes.Status404NotFound).ExecuteAsync(context);
 
-        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+        context.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         using var doc = JsonDocument.Parse(await context.ReadResponseBodyAsync());
         doc.RootElement.GetProperty("component").GetString().Should().Be("Errors/ServerError");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldLetTheExceptionHandlerPageChooseItsStatus()
+    {
+        var (result, context) = CreateInertiaResult(
+            pageProps: new() { ["report"] = new UnserializableValue() },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (_, _) =>
+                    InertiaResults.Inertia("Errors/Maintenance", (object?)null, StatusCodes.Status503ServiceUnavailable);
+            });
+
+        await result.ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldScopeTheExceptionHandlerDefaultStatusToTheHandlerResult()
+    {
+        var (result, context) = CreateInertiaResult(
+            pageProps: new() { ["report"] = new UnserializableValue() },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (_, _) => InertiaResults.Inertia("Errors/ServerError");
+            });
+
+        await result.ExecuteAsync(context);
+
+        // The marker that selects the 500 default is removed once the handler's result has run.
+        context.Items.Should().NotContainKey(InertiaContextKeys.ExceptionHandlerActiveKey);
     }
 
     [System.Text.Json.Serialization.JsonConverter(typeof(UnserializableValueConverter))]

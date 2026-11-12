@@ -106,13 +106,15 @@ public class InertiaOptions
      /// to render a custom error response, or return null to rethrow the original exception.
      /// </summary>
     /// <remarks>
+    /// An Inertia page returned by the handler is sent with status 500 unless it calls
+    /// <see cref="InertiaResult.WithStatus(int)"/>, which always wins (for example a 503 for a maintenance page).
+    /// Other results keep their own status handling.
     /// Example:
      /// <code>
      /// options.HandleExceptionsUsing = (exception, context) =>
      /// {
      ///     return context.RequestServices.GetRequiredService&lt;IInertiaService&gt;()
-     ///         .Render("Errors/ServerError", new { message = exception.Message })
-     ///         .WithStatus(StatusCodes.Status500InternalServerError);
+     ///         .Render("Errors/ServerError", new { message = exception.Message });
      /// };
      /// </code>
      /// </remarks>

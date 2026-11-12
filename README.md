@@ -965,13 +965,20 @@ builder.Services.AddInertia(options =>
                 message = context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
                     ? exception.Message
                     : "Something went wrong.",
-            })
-            .WithStatus(StatusCodes.Status500InternalServerError);
+            });
 });
 ```
 
-Without `WithStatus` the handler's page keeps the status the response had before the failed render
-(normally 200).
+An Inertia page returned by the handler is sent with status 500, on the initial HTML response and on the
+JSON response for Inertia visits, as Laravel's exception responses carry the real status. Call
+`WithStatus` to send another status, for example `.WithStatus(StatusCodes.Status503ServiceUnavailable)`
+for a maintenance page; an explicit status always wins. Other results returned by the handler set their
+own status.
+
+> **Behaviour change.** Before this release a handler page without `WithStatus` kept the status the
+> response had before the failed render, normally 200. It is now 500, so the client raises its
+> `httpException` event and `onHttpException` callback for it (see [Status codes](#status-codes)). Add
+> `.WithStatus(StatusCodes.Status200OK)` to keep the old status.
 
 The handler may also return a normal ASP.NET Core result when that is more appropriate:
 

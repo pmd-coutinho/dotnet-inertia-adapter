@@ -66,7 +66,11 @@ internal sealed class StubRootView(string path) : IView
     }
 }
 
-public sealed class ErrorStatusProbeException : Exception;
+/// <summary>Handled by the test app's <c>HandleExceptionsUsing</c>; a null status renders without <c>WithStatus</c>.</summary>
+public sealed class ErrorStatusProbeException(int? status = StatusCodes.Status500InternalServerError) : Exception
+{
+    public int? Status { get; } = status;
+}
 
 public sealed record ErrorStatusProps(int Status);
 
@@ -82,6 +86,13 @@ public sealed class ErrorStatusProbeController : Controller
     public IActionResult Missing()
         => this.Inertia("Errors/Status", new { status = StatusCodes.Status404NotFound })
             .WithStatus(StatusCodes.Status404NotFound);
+
+    [HttpGet("render-failure")]
+    public IActionResult RenderFailure([FromServices] IInertiaService inertia)
+        => this.Inertia("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+        });
 }
 
 public class ErrorStatusIntegrationTests
@@ -332,6 +343,39 @@ public class ErrorStatusIntegrationTests
         (await jsonResponse.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render");
     }
 
+    [Theory]
+    [InlineData("/minimal/render-failure/default")]
+    [InlineData("/error-status/mvc/render-failure")]
+    [InlineData("/minimal/render-failure/on-404")]
+    public async Task HandleExceptionsUsing_ShouldDefaultTo500_WithoutAnExplicitStatus(string path)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var htmlResponse = await app.Client.GetAsync(path);
+        htmlResponse.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        htmlResponse.Headers.GetValues(StatusPreservingViewResultExecutor.PageComponentHeader)
+            .Should().ContainSingle().Which.Should().Be("Errors/Render");
+        htmlResponse.Headers.GetValues(StatusPreservingViewResultExecutor.PageUrlHeader)
+            .Should().ContainSingle().Which.Should().Be(path);
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, path);
+        using var jsonResponse = await app.Client.SendAsync(request);
+        (await jsonResponse.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render").HasUrl(path);
+    }
+
+    [Fact]
+    public async Task HandleExceptionsUsing_ShouldPreferAnExplicitStatus()
+    {
+        await using var app = await CreateAppAsync();
+
+        using var htmlResponse = await app.Client.GetAsync("/minimal/render-failure/explicit");
+        htmlResponse.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, "/minimal/render-failure/explicit");
+        using var jsonResponse = await app.Client.SendAsync(request);
+        (await jsonResponse.AssertInertiaAsync(HttpStatusCode.ServiceUnavailable)).HasComponent("Errors/Render");
+    }
+
     [Fact]
     public async Task HandleExceptionsUsing_ShouldNotKeepThePrefetchCacheHeader_WhenSerializationFails()
     {
@@ -472,11 +516,11 @@ public class ErrorStatusIntegrationTests
             options.RootView = "App";
             options.Version = () => "server-version";
             options.HandleExceptionsUsing = (exception, context) =>
-                exception is not ErrorStatusProbeException
-                    ? null
-                    : context.RequestServices.GetRequiredService<IInertiaService>()
-                        .Render("Errors/Render")
-                        .WithStatus(StatusCodes.Status500InternalServerError);
+            {
+                if (exception is not ErrorStatusProbeException probe) return null;
+                var page = context.RequestServices.GetRequiredService<IInertiaService>().Render("Errors/Render");
+                return probe.Status is { } status ? page.WithStatus(status) : page;
+            };
         });
 
         var app = builder.Build();
@@ -530,6 +574,19 @@ public class ErrorStatusIntegrationTests
         {
             ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException()),
         }));
+        app.MapGet("/minimal/render-failure/default", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+        }));
+        app.MapGet("/minimal/render-failure/explicit", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(StatusCodes.Status503ServiceUnavailable)),
+        }));
+        // A render that fails while the response already carries 404 still reports the failure as a 500.
+        app.MapGet("/minimal/render-failure/on-404", (IInertiaService inertia) => inertia.Render("Errors/Status", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+        }).WithStatus(StatusCodes.Status404NotFound));
         app.MapGet("/minimal/serialization-failure", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
         {
             ["report"] = new ErrorStatusThrowingValue(),
