@@ -138,6 +138,30 @@ public class InertiaMiddlewareTests
         context.Response.Headers.Location.ToString().Should().Be("/");
     }
 
+    [Theory]
+    [InlineData("http://localhost/form?step=2", "/form?step=2")]
+    [InlineData("/form", "/form")]
+    [InlineData("https://evil.example/form", "/submit")]
+    [InlineData("//evil.example/form", "/submit")]
+    [InlineData("/\\evil.example/form", "/submit")]
+    [InlineData("http://localhost//evil.example/form", "/submit")]
+    [InlineData("http://localhost/\\evil.example/form", "/submit")]
+    public async Task EmptyResponse_RedirectsBackOnlyToALocalReferer(string referer, string location)
+    {
+        var context = CreateContextWithInertiaServices("POST", "/submit", new()
+        {
+            ["X-Inertia"] = "true",
+            ["Referer"] = referer,
+        });
+        context.Request.Scheme = "http";
+        context.Request.Host = new HostString("localhost");
+
+        await new InertiaMiddleware(ctx => { ctx.Response.StatusCode = 204; return Task.CompletedTask; }).InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(303);
+        context.Response.Headers.Location.ToString().Should().Be(location);
+    }
+
     [Fact]
     public async Task InvokeAsync_ShouldReturn409WithRedirectHeader_WhenRedirectHasFragment()
     {
