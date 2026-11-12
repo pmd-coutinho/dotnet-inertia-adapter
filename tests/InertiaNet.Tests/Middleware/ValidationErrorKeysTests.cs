@@ -99,14 +99,23 @@ public class ValidationErrorKeysTests
     }
 
     [Fact]
-    public void DefaultOptions_UseCamelCaseAndBrackets()
+    public void DefaultOptions_UseCamelCaseAndDots()
     {
-        var keys = ValidationErrorKeys.From((InertiaOptions?)null);
+        new InertiaOptions().ValidationErrorKeyFormat.Should().Be(ValidationErrorKeyFormat.Dots);
 
-        keys.Format.Should().Be(ValidationErrorKeyFormat.Brackets);
-        keys.Normalize("Values[3].Code").Should().Be("values[3].code");
-        ValidationErrorKeys.From(new InertiaOptions()).Normalize("Address.Street").Should().Be("address.street");
+        foreach (var keys in new[] { ValidationErrorKeys.From((InertiaOptions?)null), ValidationErrorKeys.From(new InertiaOptions()) })
+        {
+            keys.Format.Should().Be(ValidationErrorKeyFormat.Dots);
+            keys.Normalize("Address.Street").Should().Be("address.street");
+            keys.Normalize("Values[3].Code").Should().Be("values.3.code");
+            keys.Normalize("Prices[EUR]").Should().Be("prices.EUR");
+        }
     }
+
+    [Fact]
+    public void BracketsFormat_RemainsAvailableAsAnOptIn()
+        => ValidationErrorKeys.From(new InertiaOptions { ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets })
+            .Normalize("Values[3].Code").Should().Be("values[3].code");
 
     public static TheoryData<string> SerializerOptionNames => ["default", "null-policy", "web", "snake-case"];
 

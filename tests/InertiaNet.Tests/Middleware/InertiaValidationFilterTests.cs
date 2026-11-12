@@ -181,6 +181,24 @@ public class InertiaValidationFilterTests
     }
 
     [Fact]
+    public async Task OnResultExecutionAsync_ShouldWriteDotPathsByDefault()
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Values[3].Code", "Code is invalid");
+        modelState.AddModelError("Prices[EUR]", "Price is required");
+
+        var context = CreateResultContext(new RedirectResult("/create"), modelState, tempDataFactory);
+
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+            Task.FromResult(new ResultExecutedContext(context, [], context.Result, controller: null!)));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo("values.3.code", "prices.EUR");
+    }
+
+    [Fact]
     public async Task OnResultExecutionAsync_ShouldUseTheConfiguredPropertyNamingPolicy()
     {
         var tempDataFactory = new FakeTempDataFactory();

@@ -177,11 +177,13 @@ public class InertiaValidationEndpointFilterTests
 
         var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
             (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
-        errors.Keys.Should().BeEquivalentTo("email", "address.street", "values[3].code", "prices[EUR]", "name");
-        errors["values[3].code"].Should().Equal("Code is invalid");
+        // Dots is the default format.
+        errors.Keys.Should().BeEquivalentTo("email", "address.street", "values.3.code", "prices.EUR", "name");
+        errors["values.3.code"].Should().Equal("Code is invalid");
     }
 
     [Theory]
+    [InlineData(ValidationErrorKeyFormat.Brackets, "values[3].code")]
     [InlineData(ValidationErrorKeyFormat.Dots, "values.3.code")]
     [InlineData(ValidationErrorKeyFormat.Preserve, "Values[3].Code")]
     public async Task InvokeAsync_ShouldHonorTheConfiguredKeyFormat(ValidationErrorKeyFormat format, string expected)

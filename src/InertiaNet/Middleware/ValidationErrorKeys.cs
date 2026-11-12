@@ -27,7 +27,7 @@ internal readonly record struct ValidationErrorKeys(
     {
         var json = options?.JsonSerializerOptions ?? InertiaJsonOptions.Default;
         return new(json.PropertyNamingPolicy, json.DictionaryKeyPolicy,
-            format ?? options?.ValidationErrorKeyFormat ?? ValidationErrorKeyFormat.Brackets);
+            format ?? options?.ValidationErrorKeyFormat ?? ValidationErrorKeyFormat.Dots);
     }
 
     public static ValidationErrorKeys From(HttpContext context, ValidationErrorKeyFormat? format = null)

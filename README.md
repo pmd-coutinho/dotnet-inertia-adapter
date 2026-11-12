@@ -117,7 +117,7 @@ builder.Services.AddInertia(options =>
     options.RootView = "App";              // Razor view for initial HTML render
     options.EncryptHistory = false;        // Enable history encryption globally
     options.WithAllErrors = false;         // Return all validation errors per field
-    options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets; // "values[3].code"; Dots → "values.3.code"
+    options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots; // "values.3.code" (default); Brackets → "values[3].code"
     options.ExposeSharedPropKeys = true;   // Include sharedProps key list in responses
     options.PrefetchCacheMaxAge = 10;      // Default Cache-Control max-age for prefetch (seconds)
     options.Version = ManifestVersionStrategy.FromViteOrMix(webRootPath); // Asset versioning
@@ -128,6 +128,10 @@ builder.Services.AddInertia(options =>
     options.Pages.ManifestPaths = ["wwwroot/build/manifest.json"]; // build output (production)
 });
 ```
+
+> **Breaking change:** `ValidationErrorKeyFormat` now defaults to `Dots` (`values.3.code`) instead of
+> `Brackets` (`values[3].code`), and error keys follow a `null` `PropertyNamingPolicy` instead of falling back
+> to camelCase. See [Error Keys](#error-keys) for details and how to keep the previous behaviour.
 
 ### SSR
 
@@ -797,6 +801,17 @@ builder.Services.AddControllersWithViews(options =>
     options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider()));
 ```
 
+> **Breaking change: `Dots` is the default `ValidationErrorKeyFormat`.** Earlier releases defaulted to
+> `Brackets`, so an indexed field reached the page as `values[3].code` after a redirect. Forwarded errors now
+> use dot paths (`values.3.code`, `prices.EUR`), the form Inertia's form types and Precognition use, so a
+> redirect and a Precognition response spell the same field the same way. Flat and nested member keys
+> (`email`, `address.street`) are unchanged. If your client code reads bracket keys such as
+> `errors['values[3].code']`, either switch it to dot paths or keep the previous format:
+>
+> ```csharp
+> builder.Services.AddInertia(options => options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets);
+> ```
+
 > **Behaviour change for custom options with a `null` naming policy.** Earlier releases camel-cased error
 > keys even when `InertiaOptions.JsonSerializerOptions` had no `PropertyNamingPolicy`, while props serialized
 > with those options kept their CLR names, so the page got an `Email` prop but an `email` error. Error keys now
@@ -807,25 +822,26 @@ builder.Services.AddControllersWithViews(options =>
 > **Behaviour change for Minimal APIs.** Earlier releases forwarded keys passed to the dictionary and
 > `ValidationProblemDetails` overloads of `SetInertiaValidationErrors` unchanged. They are now normalized like
 > ModelState keys, so `Address.Street` becomes `address.street`, but hand-written keys that are not CLR member
-> paths are renamed too (`SKU` becomes `sku`, `API_KEY` becomes `apI_KEY`). Set
-> `ValidationErrorKeyFormat.Preserve` to keep the previous verbatim forwarding.
+> paths are renamed too (`SKU` becomes `sku`, `API_KEY` becomes `apI_KEY`). System.Text.Json renames
+> properties with those names the same way, so the keys still match props serialized with the same policy.
+> Set `ValidationErrorKeyFormat.Preserve` to keep the previous verbatim forwarding.
 
 `ValidationErrorKeyFormat` chooses how indexers are written for errors forwarded across redirects:
 
-| ModelState / supplied key | `Brackets` (default) | `Dots` | `Preserve` |
+| ModelState / supplied key | `Dots` (default) | `Brackets` | `Preserve` |
 | --- | --- | --- | --- |
 | `Email` | `email` | `email` | `Email` |
 | `Address.Street` | `address.street` | `address.street` | `Address.Street` |
-| `Values[3].Code` | `values[3].code` | `values.3.code` | `Values[3].Code` |
-| `Prices[EUR]` | `prices[EUR]` | `prices.EUR` | `Prices[EUR]` |
+| `Values[3].Code` | `values.3.code` | `values[3].code` | `Values[3].Code` |
+| `Prices[EUR]` | `prices.EUR` | `prices[EUR]` | `Prices[EUR]` |
 
-`Dots` matches Laravel and the dot paths that Inertia's `useForm` uses for nested fields
-(`form.errors['values.3.code']`), and is recommended for new applications. `Brackets` stays the
-default for compatibility with earlier releases. `Preserve` forwards keys exactly as supplied.
-Precognition responses always use dot paths, because the Precognition client sends and matches them.
-Under the `Brackets` default the same field is therefore `values.3.code` in a Precognition response and
-`values[3].code` after a redirect; use `Dots` so both paths agree. A `Precognition-Validate-Only` field selects
-its errors in either spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
+`Dots` matches Laravel and the dot paths that Inertia's form types build for nested fields
+(`form.errors['values.3.code']`). Precognition responses always use dot paths, because the Precognition
+client sends and matches them, so under the default a field has the same key in a Precognition response and
+after a redirect. `Brackets` keeps the ASP.NET indexer form of releases before the default changed; with it,
+the same field is `values.3.code` in a Precognition response and `values[3].code` after a redirect.
+`Preserve` forwards keys exactly as supplied. A `Precognition-Validate-Only` field selects its errors in either
+spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
 
 ### Error Bags
 

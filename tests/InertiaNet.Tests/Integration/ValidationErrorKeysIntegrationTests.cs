@@ -50,6 +50,40 @@ public class ValidationErrorKeysIntegrationTests
         errors[indexed].Should().Be("Quantity must be at least 1.");
     }
 
+    [Theory]
+    [InlineData("mvc")]
+    [InlineData("minimal")]
+    public async Task RedirectedErrors_UseDotPathsByDefault(string endpoint)
+    {
+        await using var app = await App(_ => { });
+        using var client = app.GetTestClient();
+
+        using var submit = await client.SendAsync(Request(HttpMethod.Post, $"/validation-keys/{endpoint}", InvalidPayload));
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+
+        (await Errors(client)).Keys.Should().BeEquivalentTo("name", "address.street", "lines.1.quantity");
+    }
+
+    [Fact]
+    public async Task DefaultOptions_GivePrecognitionAndRedirectedErrorsTheSameKeys()
+    {
+        await using var app = await App(_ => { });
+        using var client = app.GetTestClient();
+
+        using var precognitive = Request(HttpMethod.Post, "/validation-keys/mvc", InvalidPayload);
+        precognitive.Headers.Add(HeaderNames.Precognition, "true");
+        using var validation = await client.SendAsync(precognitive);
+        validation.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        using var body = JsonDocument.Parse(await validation.Content.ReadAsStringAsync());
+        var precognitionKeys = body.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name).ToList();
+
+        using var submit = await client.SendAsync(Request(HttpMethod.Post, "/validation-keys/mvc", InvalidPayload));
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+
+        precognitionKeys.Should().Contain("lines.1.quantity");
+        (await Errors(client)).Keys.Should().BeEquivalentTo(precognitionKeys);
+    }
+
     [Fact]
     public async Task RedirectedErrors_UseTheConfiguredPropertyNamingPolicy()
     {
