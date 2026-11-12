@@ -64,8 +64,8 @@ public class InertiaOptions
     /// keeps CLR member names (<c>Address.Street</c>) exactly as props are. <see cref="ValidationErrorKeyFormat.Dots"/>
     /// (the default) writes indexers as <c>values.3.code</c>, the form used by Laravel, Inertia's form types and
     /// Precognition responses, so a field has one key on both paths. <see cref="ValidationErrorKeyFormat.Brackets"/>
-    /// keeps the ASP.NET form <c>values[3].code</c>, the default of earlier releases; Precognition responses still
-    /// use dot paths under it. Keys passed to <c>SetInertiaValidationErrors</c> are normalized too;
+    /// keeps the ASP.NET indexer form <c>values[3].code</c>; Precognition responses still use dot paths under it.
+    /// Keys passed to <c>SetInertiaValidationErrors</c> are normalized too;
     /// <see cref="ValidationErrorKeyFormat.Preserve"/> forwards them verbatim.
     /// </summary>
     public ValidationErrorKeyFormat ValidationErrorKeyFormat { get; set; } = ValidationErrorKeyFormat.Dots;

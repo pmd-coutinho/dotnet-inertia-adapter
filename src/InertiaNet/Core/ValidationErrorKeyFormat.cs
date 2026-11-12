@@ -8,17 +8,15 @@ namespace InertiaNet.Core;
 /// <see cref="Brackets"/> and <see cref="Dots"/> apply the property naming policy props are serialized with
 /// to every member segment of a key (<c>Address.Street</c> becomes <c>address.street</c> under the default
 /// camelCase policy). Precognition responses always use <see cref="Dots"/>, which is the path form sent by the
-/// Precognition client and the default for forwarded errors. The member order (and so the numeric values) is
-/// unchanged from earlier releases, so <c>default(ValidationErrorKeyFormat)</c> is still <see cref="Brackets"/>;
-/// the default of <see cref="InertiaOptions.ValidationErrorKeyFormat"/> is <see cref="Dots"/>.
+/// Precognition client and the default of <see cref="InertiaOptions.ValidationErrorKeyFormat"/>.
 /// </remarks>
 public enum ValidationErrorKeyFormat
 {
     /// <summary>
     /// Keeps ASP.NET Core indexers in brackets, for example <c>values[3].code</c> and
     /// <c>prices[EUR].amount</c> (dictionary keys keep their casing unless a
-    /// <c>DictionaryKeyPolicy</c> is configured). This matches the indexer form forwarded by default by earlier
-    /// releases; Precognition responses still use dot paths.
+    /// <c>DictionaryKeyPolicy</c> is configured). Precognition responses still use dot paths
+    /// under this format.
     /// </summary>
     Brackets,
 
