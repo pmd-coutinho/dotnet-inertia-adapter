@@ -10,12 +10,14 @@ Shared constants, asset-version hashes, and response-header normalization suppor
 - `SessionKeys` defines `ClearHistory`, `FlashData`, `PreserveFragment`, `ValidationErrors`, and `ErrorBag` TempData keys.
 - `ManifestVersionStrategy.Hash(path)`, `HashString(value)`, and `FromViteOrMix(webRootPath)` provide version hashes/delegates.
 - Internal `InertiaResponseHeaders.AppendVary` appends response variation tokens; `SkipStatusCodePages` disables status code pages for bodiless protocol responses. Internal `InertiaRequestUrl.GetOriginalUrl` returns the original request URL during status-code-page or exception-handler re-execution.
+- Internal `RefererUrl.TryGetLocal` reduces a relative or same-origin `Referer` to a local redirect target.
 
 ## Invariants
 
 - File and UTF-8 string hashing use xxHash128 with a lowercase 32-character hexadecimal digest. Missing files return `null`.
 - `FromViteOrMix` checks `build/manifest.json` before `mix-manifest.json` under the supplied web root each time its delegate runs.
 - `AppendVary` preserves existing tokens, deduplicates case-insensitively, and leaves an existing wildcard unchanged.
+- `RefererUrl.TryGetLocal` rejects results that are not local paths in the sense of ASP.NET Core `IsLocalUrl`, including same-origin URLs whose path starts with `//` or `/\`.
 - Session constants name storage entries; persistence belongs to middleware and filters.
 
 ## Side Effects

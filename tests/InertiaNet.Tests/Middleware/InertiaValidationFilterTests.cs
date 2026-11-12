@@ -153,4 +153,51 @@ public class InertiaValidationFilterTests
 
         tempDataFactory.TempData.Count.Should().Be(0);
     }
+    [Theory]
+    [InlineData(ValidationErrorKeyFormat.Brackets, "address.street", "values[3].code", "prices[EUR]")]
+    [InlineData(ValidationErrorKeyFormat.Dots, "address.street", "values.3.code", "prices.EUR")]
+    [InlineData(ValidationErrorKeyFormat.Preserve, "Address.Street", "Values[3].Code", "Prices[EUR]")]
+    public async Task OnResultExecutionAsync_ShouldNormalizeNestedAndIndexedKeysPerSegment(
+        ValidationErrorKeyFormat format, string nested, string indexed, string dictionaryKeyed)
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Address.Street", "Street is required");
+        modelState.AddModelError("Values[3].Code", "Code is invalid");
+        modelState.AddModelError("Prices[EUR]", "Price is required");
+        modelState.AddModelError("email", "Email is required");
+
+        var context = CreateResultContext(new RedirectResult("/create"), modelState, tempDataFactory,
+            configure: options => options.ValidationErrorKeyFormat = format);
+
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+            Task.FromResult(new ResultExecutedContext(context, [], context.Result, controller: null!)));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo(nested, indexed, dictionaryKeyed, "email");
+        errors[nested].Should().Equal("Street is required");
+        errors[indexed].Should().Equal("Code is invalid");
+    }
+
+    [Fact]
+    public async Task OnResultExecutionAsync_ShouldUseTheConfiguredPropertyNamingPolicy()
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("ShippingAddress.PostCode", "Required");
+
+        var context = CreateResultContext(new RedirectResult("/create"), modelState, tempDataFactory,
+            configure: options => options.JsonSerializerOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            });
+
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+            Task.FromResult(new ResultExecutedContext(context, [], context.Result, controller: null!)));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().Equal("shipping_address.post_code");
+    }
 }

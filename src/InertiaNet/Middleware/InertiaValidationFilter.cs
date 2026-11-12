@@ -13,7 +13,8 @@ namespace InertiaNet.Middleware;
 /// <summary>
 /// Result filter that automatically serializes ModelState validation errors
 /// to TempData when the action result is a redirect. This allows the Inertia
-/// middleware to restore errors on the next request.
+/// middleware to restore errors on the next request. Keys are normalized per path segment
+/// according to <see cref="InertiaOptions.ValidationErrorKeyFormat"/>.
 /// </summary>
 public sealed class InertiaValidationFilter : IAsyncResultFilter
 {
@@ -29,15 +30,10 @@ public sealed class InertiaValidationFilter : IAsyncResultFilter
             {
                 var tempData = tempDataFactory.GetTempData(context.HttpContext);
 
-                var errors = new Dictionary<string, string[]>();
-                foreach (var kvp in context.ModelState)
-                {
-                    if (kvp.Value.Errors.Count > 0)
-                    {
-                        var key = JsonNamingPolicy.CamelCase.ConvertName(kvp.Key);
-                        errors[key] = kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray();
-                    }
-                }
+                var errors = ValidationErrorKeys.From(context.HttpContext).Normalize(context.ModelState
+                    .Where(kvp => kvp.Value is { Errors.Count: > 0 })
+                    .Select(kvp => new KeyValuePair<string, string[]>(kvp.Key,
+                        kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray())));
                 tempData[SessionKeys.ValidationErrors] = JsonSerializer.Serialize(errors);
 
                 var errorBag = context.HttpContext.Request.GetErrorBag();

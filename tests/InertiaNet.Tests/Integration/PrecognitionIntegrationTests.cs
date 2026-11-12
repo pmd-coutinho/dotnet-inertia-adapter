@@ -57,6 +57,22 @@ public class PrecognitionIntegrationTests
     [Theory]
     [InlineData("mvc")]
     [InlineData("minimal")]
+    public async Task NestedFieldSelection_UsesTheSameDotPathsForMvcAndMinimalApis(string endpoint)
+    {
+        await using var app = await App();
+        using var client = app.GetTestClient();
+        using var request = Request(endpoint, new { email = "invalid", name = "", addresses = new[] { new { street = "Main" }, new { street = "" } } });
+        request.Headers.Add(HeaderNames.PrecognitionValidateOnly, "addresses.1.street");
+        using var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name).Should().Equal("addresses.1.street");
+        app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("mvc")]
+    [InlineData("minimal")]
     public async Task OrdinarySubmission_StillExecutesTheHandler(string endpoint)
     {
         await using var app = await App();

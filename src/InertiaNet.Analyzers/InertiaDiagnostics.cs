@@ -15,7 +15,7 @@ internal static class InertiaDiagnostics
     public static readonly DiagnosticDescriptor JsonSerializerPolicyIgnored = new(
         id: "INERTIA002",
         title: "Inertia envelope naming is fixed",
-        messageFormat: "Setting InertiaOptions.JsonSerializerOptions.{0} does not rename the Inertia protocol envelope; it only affects prop value serialization",
+        messageFormat: "Setting InertiaOptions.JsonSerializerOptions.{0} does not rename the Inertia protocol envelope; it only affects prop value serialization and validation error keys",
         category: "InertiaNet",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
