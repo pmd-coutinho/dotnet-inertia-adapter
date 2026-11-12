@@ -43,8 +43,11 @@ internal readonly record struct ValidationErrorKeys(
 
     /// <summary>
     /// Normalizes one key. Member segments use the naming policy; numeric indexers are kept verbatim;
-    /// other indexers are dictionary keys and use the dictionary key policy. A leading <c>$</c> JSON path
-    /// root from System.Text.Json input formatter errors is removed.
+    /// other indexers are dictionary keys and use the dictionary key policy. Quoted indexers
+    /// (<c>$['first name']</c>) are JSON property names from System.Text.Json and are written as member
+    /// segments without renaming. A leading <c>$</c> JSON path root is removed, and an empty indexer
+    /// (<c>Items[]</c>) is kept in <see cref="ValidationErrorKeyFormat.Brackets"/> and dropped in
+    /// <see cref="ValidationErrorKeyFormat.Dots"/>.
     /// </summary>
     public string Normalize(string key)
     {
@@ -52,37 +55,60 @@ internal readonly record struct ValidationErrorKeys(
 
         var builder = new StringBuilder(key.Length);
         var first = true;
-        foreach (var (text, indexer) in Parse(key))
+        foreach (var (text, kind) in Parse(key))
         {
-            if (!indexer)
+            switch (kind)
             {
-                if (!first) builder.Append('.');
-                builder.Append(text.Length == 0 ? text : PropertyNamingPolicy?.ConvertName(text) ?? text);
-            }
-            else
-            {
-                // A quoted indexer is a JSON property name from a System.Text.Json path and is kept as sent.
-                var quoted = text.Length >= 2 && text[0] == '\'' && text[^1] == '\'';
-                var value = IsIndex(text) || quoted ? text : DictionaryKeyPolicy?.ConvertName(text) ?? text;
-                if (Format == ValidationErrorKeyFormat.Dots)
-                {
+                case SegmentKind.Member:
                     if (!first) builder.Append('.');
-                    builder.Append(quoted ? value[1..^1] : value);
-                }
-                else builder.Append('[').Append(value).Append(']');
+                    builder.Append(text.Length == 0 ? text : PropertyNamingPolicy?.ConvertName(text) ?? text);
+                    break;
+                case SegmentKind.Quoted:
+                    if (!first) builder.Append('.');
+                    builder.Append(text);
+                    break;
+                case SegmentKind.Indexer:
+                    var value = IsIndex(text) ? text : DictionaryKeyPolicy?.ConvertName(text) ?? text;
+                    if (Format == ValidationErrorKeyFormat.Dots)
+                    {
+                        if (!first) builder.Append('.');
+                        builder.Append(value);
+                    }
+                    else builder.Append('[').Append(value).Append(']');
+                    break;
+                case SegmentKind.EmptyIndexer:
+                    if (Format == ValidationErrorKeyFormat.Dots) continue;
+                    builder.Append("[]");
+                    break;
             }
             first = false;
         }
         return builder.ToString();
     }
 
+    /// <summary>
+    /// Returns the form used to compare a key with a <c>Precognition-Validate-Only</c> field: indexers become
+    /// plain segments, the <c>$</c> root and indexer quotes are removed, and every segment, indexers included,
+    /// goes through the member naming policy. Segments are compared ignoring case. Applying the same function
+    /// to a normalized key and to the field the client echoes back guarantees that every returned key selects
+    /// itself, whichever bracket or dot spelling and casing the client uses.
+    /// </summary>
+    public string[] MatchSegments(string key)
+    {
+        var policy = PropertyNamingPolicy;
+        return [.. Parse(key).Where(segment => segment.Kind != SegmentKind.EmptyIndexer)
+            .Select(segment => segment.Text.Length == 0 ? segment.Text : policy?.ConvertName(segment.Text) ?? segment.Text)];
+    }
+
     private static bool IsIndex(string text) => text.Length > 0 && text.All(char.IsAsciiDigit);
 
-    private static List<(string Text, bool Indexer)> Parse(string key)
+    private enum SegmentKind { Member, Indexer, Quoted, EmptyIndexer }
+
+    private static List<(string Text, SegmentKind Kind)> Parse(string key)
     {
-        var segments = new List<(string Text, bool Indexer)>();
+        var segments = new List<(string Text, SegmentKind Kind)>();
         var start = 0;
-        if (key == "$") return [(string.Empty, false)];
+        if (key == "$") return [(string.Empty, SegmentKind.Member)];
         if (key.StartsWith("$.", StringComparison.Ordinal)) start = 2;
         else if (key.StartsWith("$[", StringComparison.Ordinal)) start = 1;
 
@@ -93,17 +119,18 @@ internal readonly record struct ValidationErrorKeys(
             var c = key[i];
             if (c == '.')
             {
-                if (nameOpen) segments.Add((name.ToString(), false));
+                if (nameOpen) segments.Add((name.ToString(), SegmentKind.Member));
                 name.Clear();
                 nameOpen = true;
             }
-            else if (c == '[' && key.IndexOf(']', i + 1) is var close and > 0)
+            else if (c == '[' && FindIndexerEnd(key, i) is var (close, end, quoted) && close > 0)
             {
-                if (nameOpen && name.Length > 0) segments.Add((name.ToString(), false));
+                if (nameOpen && name.Length > 0) segments.Add((name.ToString(), SegmentKind.Member));
                 name.Clear();
-                segments.Add((key[(i + 1)..close], true));
+                var text = quoted ? key[(i + 2)..close] : key[(i + 1)..close];
+                segments.Add((text, quoted ? SegmentKind.Quoted : text.Length == 0 ? SegmentKind.EmptyIndexer : SegmentKind.Indexer));
                 nameOpen = false;
-                i = close;
+                i = end;
             }
             else
             {
@@ -111,7 +138,23 @@ internal readonly record struct ValidationErrorKeys(
                 name.Append(c);
             }
         }
-        if (nameOpen) segments.Add((name.ToString(), false));
+        if (nameOpen) segments.Add((name.ToString(), SegmentKind.Member));
         return segments;
+    }
+
+    /// <summary>
+    /// Finds the end of the indexer opened at <paramref name="open"/>. A quoted indexer (<c>['a]b']</c>) runs
+    /// to the closing <c>']</c>, so brackets inside the quotes do not end it. Returns a close of -1 when the
+    /// indexer is not terminated.
+    /// </summary>
+    private static (int Close, int End, bool Quoted) FindIndexerEnd(string key, int open)
+    {
+        if (open + 1 < key.Length && key[open + 1] == '\'')
+        {
+            var quote = key.IndexOf("']", open + 2, StringComparison.Ordinal);
+            if (quote > 0) return (quote, quote + 1, true);
+        }
+        var close = key.IndexOf(']', open + 1);
+        return (close, close, false);
     }
 }

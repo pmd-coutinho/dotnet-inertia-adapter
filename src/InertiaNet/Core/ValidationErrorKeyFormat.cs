@@ -13,7 +13,8 @@ public enum ValidationErrorKeyFormat
 {
     /// <summary>
     /// Keeps ASP.NET Core indexers in brackets, for example <c>values[3].code</c> and
-    /// <c>prices[eur].amount</c>. This is the default and matches the indexer form forwarded by earlier releases.
+    /// <c>prices[EUR].amount</c> (dictionary keys keep their casing unless a
+    /// <c>DictionaryKeyPolicy</c> is configured). This is the default and matches the indexer form forwarded by earlier releases.
     /// </summary>
     Brackets,
 

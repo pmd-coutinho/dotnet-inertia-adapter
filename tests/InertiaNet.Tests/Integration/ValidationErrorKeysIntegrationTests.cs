@@ -133,6 +133,52 @@ public class ValidationErrorKeysIntegrationTests
         (await Errors(client)).Keys.Should().Contain("lines.0.quantity").And.NotContain(key => key.StartsWith('$'));
     }
 
+    [Fact]
+    public async Task ErrorBagWithAllErrors_MergesTheMessagesOfKeysThatNormalizeToTheSamePath()
+    {
+        await using var app = await App(options =>
+        {
+            options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots;
+            options.WithAllErrors = true;
+        });
+        using var client = app.GetTestClient();
+        using var request = Request(HttpMethod.Post, "/validation-keys/merged");
+        request.Headers.Add(HeaderNames.ErrorBag, "createOrder");
+
+        using var submit = await client.SendAsync(request);
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+
+        using var page = await client.SendAsync(Request(HttpMethod.Get, "/validation-keys/form"));
+        using var doc = JsonDocument.Parse(await page.Content.ReadAsStringAsync());
+        var bag = doc.RootElement.GetProperty("props").GetProperty("errors").GetProperty("createOrder");
+        bag.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("address.street", "lines.1.quantity");
+        bag.GetProperty("address.street").EnumerateArray().Select(e => e.GetString()).Should().Equal("Required.", "Too short.");
+        bag.GetProperty("lines.1.quantity").EnumerateArray().Select(e => e.GetString()).Should().Equal("Too low.", "Not a number.");
+    }
+
+    [Theory]
+    [InlineData("mvc")]
+    [InlineData("minimal")]
+    public async Task RedirectedErrors_SurviveTheCookieTempDataProvider(string endpoint)
+    {
+        await using var app = await App(options => options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots, fakeTempData: false);
+        using var client = app.GetTestClient();
+
+        using var submit = await client.SendAsync(Request(HttpMethod.Post, $"/validation-keys/{endpoint}", InvalidPayload));
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+        // TestServer's client has no cookie jar, so carry the TempData cookie to the next request by hand.
+        var cookies = submit.Headers.GetValues("Set-Cookie").Select(cookie => cookie.Split(';')[0]).ToList();
+        cookies.Should().Contain(cookie => cookie.StartsWith(".AspNetCore.Mvc.CookieTempDataProvider=", StringComparison.Ordinal));
+
+        using var follow = Request(HttpMethod.Get, "/validation-keys/form");
+        follow.Headers.Add("Cookie", string.Join("; ", cookies));
+        using var page = await client.SendAsync(follow);
+        using var doc = JsonDocument.Parse(await page.Content.ReadAsStringAsync());
+        var errors = doc.RootElement.GetProperty("props").GetProperty("errors");
+        errors.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("name", "address.street", "lines.1.quantity");
+        errors.GetProperty("lines.1.quantity").GetString().Should().Be("Quantity must be at least 1.");
+    }
+
     private static async Task<Dictionary<string, string>> Errors(HttpClient client)
     {
         using var page = await client.SendAsync(Request(HttpMethod.Get, "/validation-keys/form"));
@@ -150,12 +196,13 @@ public class ValidationErrorKeysIntegrationTests
         return request;
     }
 
-    private static async Task<WebApplication> App(Action<InertiaOptions> configure)
+    private static async Task<WebApplication> App(Action<InertiaOptions> configure, bool fakeTempData = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddControllersWithViews().AddApplicationPart(typeof(ValidationKeysProbeController).Assembly);
-        builder.Services.Replace(ServiceDescriptor.Singleton<ITempDataDictionaryFactory>(new FakeTempDataFactory()));
+        if (fakeTempData)
+            builder.Services.Replace(ServiceDescriptor.Singleton<ITempDataDictionaryFactory>(new FakeTempDataFactory()));
         builder.Services.AddInertia(configure);
         var app = builder.Build();
         app.UseInertia();
@@ -171,6 +218,18 @@ public class ValidationErrorKeysIntegrationTests
             for (var i = 0; i < input.Lines.Count; i++)
                 if (input.Lines[i].Quantity < 1) errors[$"Lines[{i}].Quantity"] = ["Quantity must be at least 1."];
             context.SetInertiaValidationErrors(new ValidationProblemDetails(errors));
+            return Results.Redirect("/validation-keys/form");
+        }).WithInertiaValidation();
+        app.MapPost("/validation-keys/merged", (HttpContext context) =>
+        {
+            // ASP.NET member paths and hand-written client paths for the same fields.
+            context.SetInertiaValidationErrors(new Dictionary<string, string[]>
+            {
+                ["Address.Street"] = ["Required."],
+                ["address.street"] = ["Too short."],
+                ["Lines[1].Quantity"] = ["Too low."],
+                ["$.lines[1].quantity"] = ["Not a number."],
+            });
             return Results.Redirect("/validation-keys/form");
         }).WithInertiaValidation();
         await app.StartAsync();

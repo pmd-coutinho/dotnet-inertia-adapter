@@ -395,7 +395,7 @@ The starters configure ASP.NET's antiforgery header as `X-XSRF-TOKEN`, set the r
 Current diagnostics:
 
 - `INERTIA001` invalid Inertia component names
-- `INERTIA002` `JsonSerializerOptions` naming policies that do not affect the Inertia envelope
+- `INERTIA002` `JsonSerializerOptions` naming policies that do not affect the Inertia envelope (they shape prop values and [validation error keys](#error-keys))
 - `INERTIA003` missing page component files when page validation is enabled
 - `PATHFINDER001` Minimal API route templates that Pathfinder cannot resolve statically
 - `PATHFINDER002` Minimal API handlers that cannot be resolved as a lambda or unambiguous source method group
@@ -664,12 +664,29 @@ Precognition) normalizes keys the same way, one path segment at a time:
 
 - Member segments use the `PropertyNamingPolicy` of `InertiaOptions.JsonSerializerOptions`.
   When that is not set (including custom options whose policy is `null`), camelCase is used,
-  as in earlier releases. `[JsonPropertyName]` overrides on input models are not consulted.
+  as in earlier releases. Props serialized with such custom options keep their CLR casing, so set
+  the policy explicitly if you rely on PascalCase props.
 - Numeric indexers are kept. Other indexers are dictionary keys and use the configured
   `DictionaryKeyPolicy` (none by default), matching how dictionary props are serialized.
-- The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed.
+- The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed. Quoted
+  indexers (`$['first name']`) are JSON property names and are written as plain segments without renaming.
 - Keys that normalize to the same path have their messages merged.
 - Restored keys are written as-is: `DictionaryKeyPolicy` does not rename them, or the error-bag name, a second time.
+
+`[JsonPropertyName]` overrides on input models are not consulted. To make ModelState use JSON names in the
+first place, register ASP.NET Core's metadata provider; camelCase and snake_case keys come out unchanged
+when normalized again:
+
+```csharp
+builder.Services.AddControllersWithViews(options =>
+    options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider()));
+```
+
+> **Behaviour change for Minimal APIs.** Earlier releases forwarded keys passed to the dictionary and
+> `ValidationProblemDetails` overloads of `SetInertiaValidationErrors` unchanged. They are now normalized like
+> ModelState keys, so `Address.Street` becomes `address.street`, but hand-written keys that are not CLR member
+> paths are renamed too (`SKU` becomes `sku`, `API_KEY` becomes `apI_KEY`). Set
+> `ValidationErrorKeyFormat.Preserve` to keep the previous verbatim forwarding.
 
 `ValidationErrorKeyFormat` chooses how indexers are written for errors forwarded across redirects:
 
@@ -684,6 +701,9 @@ Precognition) normalizes keys the same way, one path segment at a time:
 (`form.errors['values.3.code']`), and is recommended for new applications. `Brackets` stays the
 default for compatibility with earlier releases. `Preserve` forwards keys exactly as supplied.
 Precognition responses always use dot paths, because the Precognition client sends and matches them.
+Under the `Brackets` default the same field is therefore `values.3.code` in a Precognition response and
+`values[3].code` after a redirect; use `Dots` so both paths agree. A `Precognition-Validate-Only` field selects
+its errors in either spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
 
 ### Error Bags
 

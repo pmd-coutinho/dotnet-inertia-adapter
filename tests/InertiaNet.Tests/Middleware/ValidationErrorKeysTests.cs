@@ -29,7 +29,12 @@ public class ValidationErrorKeysTests
     [InlineData("$", "", "")]
     [InlineData("$.Address.Street", "address.street", "address.street")]
     [InlineData("$.items[0].name", "items[0].name", "items.0.name")]
-    [InlineData("$['odd.name']", "['odd.name']", "odd.name")]
+    [InlineData("$['odd.name']", "odd.name", "odd.name")]
+    [InlineData("$['first name']", "first name", "first name")]
+    [InlineData("$['a]b']", "a]b", "a]b")]
+    [InlineData("$.lines[0]['Unit Price']", "lines[0].Unit Price", "lines.0.Unit Price")]
+    [InlineData("Items[]", "items[]", "items")]
+    [InlineData("Items[].Name", "items[].name", "items.name")]
     [InlineData("Broken[0", "broken[0", "broken[0")]
     public void Normalize_AppliesTheNamingPolicyPerSegment(string key, string brackets, string dots)
     {
@@ -43,6 +48,37 @@ public class ValidationErrorKeysTests
     [InlineData("API_KEY")]
     public void Preserve_ForwardsKeysUnchanged(string key)
         => Keys(ValidationErrorKeyFormat.Preserve).Normalize(key).Should().Be(key);
+
+    [Theory]
+    [InlineData("prices.EUR", "Prices[EUR]")]
+    [InlineData("prices.eur", "Prices[EUR]")]
+    [InlineData("lines[1][quantity]", "lines.1.quantity")]
+    [InlineData("Addresses[0].ID", "addresses.0.iD")]
+    [InlineData("items[].name", "Items.Name")]
+    public void MatchSegments_IgnoreIndexerSpellingAndCasing(string left, string right)
+    {
+        var keys = Keys(ValidationErrorKeyFormat.Dots);
+
+        keys.MatchSegments(left).Should().Equal(keys.MatchSegments(right), (a, b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(ValidationErrorKeyFormat.Brackets)]
+    [InlineData(ValidationErrorKeyFormat.Dots)]
+    public void MatchSegments_OfANormalizedKeyEqualThoseOfItsSourceWithoutADictionaryKeyPolicy(ValidationErrorKeyFormat format)
+    {
+        var keys = ValidationErrorKeys.From(new InertiaOptions
+        {
+            JsonSerializerOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            },
+            ValidationErrorKeyFormat = format,
+        });
+
+        foreach (var key in new[] { "ShippingAddress.PostCode", "Prices[EurRate].Amount", "Lines[2].UnitPrice", "$.lines[0]['x']" })
+            keys.MatchSegments(keys.Normalize(key)).Should().Equal(keys.MatchSegments(key));
+    }
 
     [Fact]
     public void ConfiguredSerializerPolicies_ReplaceCamelCase()
