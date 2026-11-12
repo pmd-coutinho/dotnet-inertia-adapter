@@ -68,6 +68,8 @@ internal sealed class StubRootView(string path) : IView
 
 public sealed class ErrorStatusProbeException : Exception;
 
+public sealed record ErrorStatusProps(int Status);
+
 public sealed class ErrorStatusThrowingValue
 {
     public string Value => throw new ErrorStatusProbeException();
@@ -117,6 +119,56 @@ public class ErrorStatusIntegrationTests
 
         page.HasComponent("Errors/Status").HasUrl(path).HasProp("status", (int)expected);
         response.Headers.Vary.Should().Contain(HeaderNames.Inertia);
+    }
+
+    // ── InertiaResults status overloads ──────────────────────────────────────
+
+    public static TheoryData<string> StatusOverloads => ["object", "dictionary", "factory", "async-factory", "typed"];
+
+    [Theory]
+    [MemberData(nameof(StatusOverloads))]
+    public async Task InertiaResultsStatusOverloads_ShouldApplyToInitialHtmlResponses(string overload)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var response = await app.Client.GetAsync($"/results/status/{overload}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
+        response.Headers.GetValues(StatusPreservingViewResultExecutor.PageComponentHeader)
+            .Should().ContainSingle().Which.Should().Be("Errors/Status");
+    }
+
+    [Theory]
+    [MemberData(nameof(StatusOverloads))]
+    public async Task InertiaResultsStatusOverloads_ShouldApplyToInertiaJsonResponses(string overload)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, $"/results/status/{overload}");
+        using var response = await app.Client.SendAsync(request);
+        var page = await response.AssertInertiaAsync(HttpStatusCode.Gone);
+
+        page.HasComponent("Errors/Status").HasProp("status", StatusCodes.Status410Gone);
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status204NoContent)]
+    [InlineData(StatusCodes.Status302Found)]
+    [InlineData(StatusCodes.Status100Continue)]
+    public void InertiaResultsStatusOverloads_ShouldRejectStatusesThatCannotCarryAPage_WhenCreated(int statusCode)
+    {
+        var component = new InertiaComponent<ErrorStatusProps>("Errors/Status");
+        var creations = new Func<IResult>[]
+        {
+            () => InertiaResults.Inertia("Errors/Status", new { status = statusCode }, statusCode),
+            () => InertiaResults.Inertia("Errors/Status", new Dictionary<string, object?>(), statusCode),
+            () => InertiaResults.Inertia("Errors/Status", _ => null, statusCode),
+            () => InertiaResults.Inertia("Errors/Status", (_, _) => Task.FromResult<object?>(null), statusCode),
+            () => InertiaResults.Inertia(component, new ErrorStatusProps(statusCode), statusCode),
+        };
+
+        foreach (var create in creations)
+            create.Should().Throw<ArgumentOutOfRangeException>().Which.ParamName.Should().Be("statusCode");
     }
 
     [Fact]
@@ -457,6 +509,16 @@ public class ErrorStatusIntegrationTests
             return explicitErrorStatus ? page.WithStatus(status) : page;
         });
         app.MapGet("/dashboard", (IInertiaService inertia) => inertia.Render("Dashboard"));
+        const int gone = StatusCodes.Status410Gone;
+        app.MapGet("/results/status/object", () => InertiaResults.Inertia("Errors/Status", new { status = gone }, gone));
+        app.MapGet("/results/status/dictionary", () => InertiaResults.Inertia("Errors/Status",
+            new Dictionary<string, object?> { ["status"] = gone }, gone));
+        app.MapGet("/results/status/factory", () => InertiaResults.Inertia("Errors/Status",
+            _ => new { status = gone }, gone));
+        app.MapGet("/results/status/async-factory", () => InertiaResults.Inertia("Errors/Status",
+            (_, _) => Task.FromResult<object?>(new { status = gone }), gone));
+        app.MapGet("/results/status/typed", () => InertiaResults.Inertia(
+            new InertiaComponent<ErrorStatusProps>("Errors/Status"), new ErrorStatusProps(gone), gone));
         app.MapGet("/minimal/forbidden", (IInertiaService inertia) =>
             inertia.Render("Errors/Status", new { status = StatusCodes.Status403Forbidden })
                 .WithStatus(StatusCodes.Status403Forbidden));

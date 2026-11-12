@@ -9,7 +9,7 @@ Public extensions register the runtime and connect controllers, Minimal APIs, mi
 - `AddInertia` / `AddInertia<TMiddleware>`, `AddInertiaWithSsr` / `AddInertiaWithSsr<TMiddleware>`, `AddInertiaEventHandler<T>`, and `AddViteHelper` configure services.
 - `AddInertiaChallengeHandling` (on `IServiceCollection` or `AuthenticationBuilder`) decorates `IAuthenticationService` so challenges/forbids follow the Inertia protocol.
 - `UseInertia` / `UseInertia<TMiddleware>` install conventional middleware.
-- `ControllerExtensions.Inertia` renders controller responses; `InertiaResults.Inertia` supports objects, dictionaries, typed components, and synchronous/async request factories. `InertiaResults.Location` creates external navigation results.
+- `ControllerExtensions.Inertia` renders controller responses; `InertiaResults.Inertia` supports objects, dictionaries, typed components, and synchronous/async request factories; each form has an overload taking a `statusCode` that is applied with `WithStatus`. `InertiaResults.Location` creates external navigation results.
 - `MapInertia` maps GET routes; `MapInertiaFallback` maps a fallback. Both support static props or request factories and attach component metadata.
 - `WithInertiaComponent`, `WithInertiaPrecognition`, and `WithInertiaValidation` configure endpoints; the latter two also support route groups.
 - `SetInertiaValidationErrors` accepts dictionaries, `ValidationProblemDetails`, or ModelState; `SetInertiaErrorBag` supplies a bag override.
@@ -23,7 +23,7 @@ Public extensions register the runtime and connect controllers, Minimal APIs, mi
 - Global MVC Precognition runs at order `-3000`, before the automatic invalid-model filter; validation forwarding is also registered.
 - Option validation requires a positive bounded SSR timeout or `Timeout.InfiniteTimeSpan`, diagnostics entry bounds of 1–10000, a nonnegative slow threshold, and defined large-integer and validation error key formats.
 - SSR registration enables SSR before invoking the configuration delegate, registers the named HTTP client, and preserves an existing gateway registration. The delegate can override enabled state.
-- Result factories resolve the scoped service at execution; async factories receive `RequestAborted`.
+- Result factories resolve the scoped service at execution; async factories receive `RequestAborted`. Their `statusCode` overloads validate the status when the result is created and throw `ArgumentOutOfRangeException` for statuses that cannot carry a page.
 - `IsInertia()` checks header presence regardless of its value. List header readers split comma-separated values and trim/remove empty entries.
 - Validation helpers copy errors to request items; redirect persistence requires the corresponding filter, which normalizes their keys like the MVC filter. Health-check registration does not map a public health endpoint.
 

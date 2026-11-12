@@ -78,12 +78,16 @@ public sealed class InertiaResult : IActionResult, IResult
     /// <exception cref="ArgumentOutOfRangeException">The status is informational, a redirect, or bodiless.</exception>
     public InertiaResult WithStatus(int statusCode)
     {
+        ThrowIfCannotCarryPage(statusCode);
+        _statusCode = statusCode;
+        return this;
+    }
+
+    internal static void ThrowIfCannotCarryPage(int statusCode)
+    {
         if (!CanCarryPage(statusCode))
             throw new ArgumentOutOfRangeException(nameof(statusCode), statusCode,
                 "An Inertia page requires a 2xx (except 204 and 205), 4xx or 5xx status code.");
-
-        _statusCode = statusCode;
-        return this;
     }
 
     // ── IActionResult (MVC) ──────────────────────────────────────────────────

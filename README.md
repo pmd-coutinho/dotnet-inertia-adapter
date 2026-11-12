@@ -314,6 +314,9 @@ app.MapGet("/", (IInertiaService inertia) => inertia.Render("Home"));
 // First-class Minimal API result helper
 app.MapGet("/dashboard", () => InertiaResults.Inertia("Dashboard", new { ready = true }));
 
+// Explicit status code, e.g. for an error page (see Error Handling)
+app.MapGet("/gone", () => InertiaResults.Inertia("Errors/Status", new { status = 410 }, StatusCodes.Status410Gone));
+
 // Request-aware props without resolving IInertiaService manually
 app.MapGet("/account", (HttpContext ctx) => InertiaResults.Inertia("Account", new
 {
@@ -888,9 +891,14 @@ return this.Inertia("Errors/Status", new { status = 404 }).WithStatus(StatusCode
 // Minimal API
 app.MapGet("/reports/{id}", (int id, IInertiaService inertia) =>
     inertia.Render("Errors/Status", new { status = 403 }).WithStatus(StatusCodes.Status403Forbidden));
+
+// Minimal API result helper: every InertiaResults.Inertia overload has a statusCode variant
+app.MapGet("/archive/{id}", (int id) =>
+    InertiaResults.Inertia("Errors/Status", new { status = 410 }, StatusCodes.Status410Gone));
 ```
 
-`WithStatus` accepts statuses that can carry a page: 2xx except 204 and 205, and 4xx/5xx.
+`WithStatus` and the `statusCode` overloads accept statuses that can carry a page: 2xx except 204 and
+205, and 4xx/5xx. The overloads throw `ArgumentOutOfRangeException` when the result is created.
 Redirects and 409 location/version responses are not pages, so keep using `Results.Redirect`,
 `inertia.Location(...)` and the middleware for those.
 
