@@ -841,8 +841,6 @@ give `email` errors for an `Email` prop.
 >   `JsonSerializerOptions` unset. With a `null` policy, JSON binding errors keep the names the client sent,
 >   so send CLR-cased field names, and don't register `SystemTextJsonValidationMetadataProvider` (it requires
 >   a non-null policy and defaults to camelCase); when a policy is set, pass the provider the same one.
->   Precognition 422 bodies are currently serialized with the application's MVC or Minimal API JSON options,
->   so a `DictionaryKeyPolicy` configured there renames their keys again (`Email` becomes `email`).
 > - **Minimal API keys are normalized.** Keys passed to the dictionary and `ValidationProblemDetails`
 >   overloads of `SetInertiaValidationErrors` are normalized like ModelState keys, so `Address.Street` becomes
 >   `address.street`, but hand-written keys that are not CLR member paths are renamed too (`SKU` becomes `sku`,
@@ -862,8 +860,7 @@ give `email` errors for an `Email` prop.
 `Dots` matches Laravel and the dot paths that Inertia's form types build for nested fields
 (`form.errors['values.3.code']`). Precognition responses always use dot paths, because the Precognition
 client sends and matches them, so under the default a field has the same key in a Precognition response and
-after a redirect (unless the application's MVC or Minimal API JSON options set a `DictionaryKeyPolicy`, which
-renames the keys of Precognition 422 bodies). `Brackets` keeps ASP.NET's bracket indexers; with it, the same
+after a redirect. `Brackets` keeps ASP.NET's bracket indexers; with it, the same
 field is `values.3.code` in a Precognition response and `values[3].code` after a redirect.
 `Preserve` forwards keys exactly as supplied. A `Precognition-Validate-Only` field selects its errors in either
 spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
@@ -986,6 +983,13 @@ Precognition lets the frontend validate form data against server-side rules in r
 
 - **Valid** → 204 No Content + `Precognition: true` and `Precognition-Success: true`
 - **Invalid** → 422 Unprocessable Entity + `Precognition: true`, with `{ message, errors }` JSON
+
+The 422 body has the shape Laravel sends, `{ "message": "The given data was invalid.", "errors": { "email":
+["..."] } }`, with `application/json`; the Precognition client reads `errors` from it. InertiaNet writes this
+body itself for MVC and Minimal APIs alike, so the application's MVC or Minimal API JSON options
+(`AddJsonOptions`, `ConfigureHttpJsonOptions`) rename neither `message`/`errors` nor the error keys, which
+already follow the [error key](#error-keys) rules. Being a fixed result rather than an
+`UnprocessableEntityObjectResult`, it also skips MVC output formatters and content negotiation.
 
 ```csharp
 [HttpPost]

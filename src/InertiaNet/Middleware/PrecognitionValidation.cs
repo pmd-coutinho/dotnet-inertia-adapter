@@ -50,9 +50,6 @@ internal static class PrecognitionValidation
         else response.Headers.Remove(HeaderNames.PrecognitionSuccess);
     }
 
-    public static object ErrorPayload(Dictionary<string, string[]> errors)
-        => new { message = "The given data was invalid.", errors };
-
     public static void ValidateObject(object? value, string prefix, Dictionary<string, List<string>> errors,
         IServiceProvider services, HashSet<object> ancestors, int depth = 0)
     {
