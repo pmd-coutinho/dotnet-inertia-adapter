@@ -8,6 +8,7 @@ ASP.NET Core adapter runtime for Inertia.js v3, shared by MVC controllers and Mi
 
 Application integration starts with `AddInertia`, `UseInertia`, and `IInertiaService` or endpoint/controller helpers. Child contracts describe the public capabilities and internal implementation boundaries.
 
+- [Authentication](./Authentication/README.md): Opt-in Inertia-aware authentication challenge/forbid responses.
 - [Context](./Context/README.md): Request and sibling-prop context for custom providers.
 - [Core](./Core/README.md): Scoped service, page/result contracts, options, typed components, and render events.
 - [Diagnostics](./Diagnostics/README.md): Opt-in prop/render measurements and explicit endpoint-manifest export.

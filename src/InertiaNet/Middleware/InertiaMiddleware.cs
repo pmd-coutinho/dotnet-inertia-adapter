@@ -92,14 +92,9 @@ public class InertiaMiddleware
     {
         context.Response.StatusCode = StatusCodes.Status302Found;
         var request = context.Request;
-        var back = request.PathBase + request.Path + request.QueryString;
-        var referer = request.Headers.Referer.ToString();
-        if (referer.StartsWith('/') && !referer.StartsWith("//") && !referer.StartsWith("/\\"))
-            back = referer;
-        else if (Uri.TryCreate(referer, UriKind.Absolute, out var uri)
-            && uri.Scheme.Equals(request.Scheme, StringComparison.OrdinalIgnoreCase)
-            && uri.Authority.Equals(request.Host.Value, StringComparison.OrdinalIgnoreCase))
-            back = uri.PathAndQuery + uri.Fragment;
+        var back = RefererUrl.TryGetLocal(request, includeFragment: true, out var referer)
+            ? referer
+            : request.PathBase + request.Path + request.QueryString;
         context.Response.Headers.Location = string.IsNullOrEmpty(back) ? "/" : back;
         return Task.CompletedTask;
     }

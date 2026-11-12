@@ -602,6 +602,120 @@ inertia.ClearHistory();
 
 ---
 
+## Authentication
+
+Inertia visits are XHR requests. When a session expires, ASP.NET Core authentication answers
+them as it would answer a browser: a cookie scheme returns `401` (it detects the client's
+`X-Requested-With` header) and an OpenID Connect scheme returns `302` to the identity
+provider. The XHR follows that redirect and fails the identity provider's CORS check, and the
+Inertia client renders neither response as a page. The Inertia protocol answer is
+`409 Conflict` with `X-Inertia-Location`, which makes the client perform a full-page visit.
+
+Opt in where you register authentication. The call can come before or after
+`AddAuthentication()`:
+
+```csharp
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    })
+    .AddCookie()
+    .AddOpenIdConnect(options => builder.Configuration.Bind("Oidc", options))
+    .AddInertiaChallengeHandling();
+// or: builder.Services.AddInertiaChallengeHandling();
+```
+
+| Request | Challenge (not signed in) | Forbid (signed in, not allowed) |
+|---------|---------------------------|---------------------------------|
+| Inertia visit (`X-Inertia`) | `409` + `X-Inertia-Location: <the scheme's sign-in URL>` | `403` without `Location` |
+| Inertia prefetch (`Purpose: prefetch`) | `409` + `X-Inertia-Location: <the prefetched URL>`; the scheme is not invoked | `403` without `Location` |
+| API request (see below) | `401` without `Location` | `403` without `Location` |
+| Any other request (browser navigation) | Unchanged (`302` to the sign-in page or identity provider) | Unchanged (`302` to the access-denied page) |
+
+The scheme handler runs first and only its redirect is translated. A redirect includes the
+cookie handler's XHR answer, which is a `401`/`403` that carries `Location`. Because only the
+redirect is translated, the sign-in URL keeps the scheme's `ReturnUrl`/`state`, your scheme
+events still apply, and a remote handler's correlation/nonce cookies are set on the XHR response
+before the browser leaves for the identity provider. Responses that are not redirects (for
+example a bearer `401` with `WWW-Authenticate`) are left unchanged.
+
+The registered `IAuthenticationService` is decorated, so the handling covers authorization
+middleware, MVC `[Authorize]`, `Results.Challenge()`/`Challenge()` and forwarded or policy schemes,
+for any middleware order. When a policy lists several schemes (for example
+`[Authorize(AuthenticationSchemes = "Cookies,Bearer")]`), each is challenged in turn; the location
+visit from a redirecting scheme is kept when a later scheme only answers a bare `401`.
+InertiaNet does not reference the OpenID Connect package. Sign-out is not translated: submit a
+remote sign-out (which redirects to the identity provider) as a regular form or link rather than
+an Inertia visit.
+
+**Prefetch.** Inertia prefetches (for example on hover) should have no side effects, and a remote
+challenge would set correlation/nonce cookies for a sign-in that may never happen. A prefetch is
+therefore answered with a location visit to the prefetched URL without invoking the scheme. If the
+prefetch is used, the client loads that page in full and the browser navigation is challenged
+normally.
+
+**Return URL after a mutation.** A `GET` visit returns to the page that was requested. When a
+`POST`/`PUT`/`PATCH`/`DELETE` visit is challenged without an explicit
+`AuthenticationProperties.RedirectUri`, the return URL is the same-origin `Referer` (path and
+query), otherwise the application root (`PathBase + "/"`). A browser cannot revisit the mutation
+URL with `GET`; Laravel's `Redirector::guest()` makes the same choice. Unsaved form state is lost
+on the full-page visit. A `Referer` whose path is not local (such as `https://host//other.example`)
+is ignored. The `Referer` is compared with the request's scheme and host, so behind a
+TLS-terminating proxy configure `UseForwardedHeaders()`; otherwise an `https` `Referer` never
+matches the `http` request and the return URL silently becomes the root.
+
+**API requests.** `InertiaChallengeOptions.ApiRequestPredicate` selects the non-Inertia requests
+that receive `401`/`403`. The default, `InertiaChallengeOptions.DefaultApiRequestPredicate`, selects:
+
+- requests that expect JSON, using the same rule as Laravel's `expectsJson()`: the most preferred
+  `Accept` type is JSON, or the request has `X-Requested-With: XMLHttpRequest` and accepts any type
+  (this covers Precognition's `Accept: application/json`);
+- script requests that the browser marks with a `Sec-Fetch-Mode` other than `navigate`, such as a
+  plain `fetch()` with the default `Accept: */*`. Browsers send `Sec-Fetch-*` only to secure
+  origins (HTTPS and `localhost`); over plain HTTP such a `fetch()` keeps its redirect unless you
+  customise `ApiRequestPredicate`;
+- requests excluded by `InertiaOptions.RequestPredicate` whose `Accept` header does not list HTML.
+  A browser navigation to an excluded path still gets its sign-in redirect.
+
+When an API challenge's redirect is replaced with `401`, cookies that the scheme set during the
+challenge (OpenID Connect correlation and nonce cookies) are removed too, because no sign-in
+callback will follow. Cookies set earlier in the request are kept.
+
+```csharp
+.AddInertiaChallengeHandling(options =>
+{
+    options.ApiRequestPredicate = context =>
+        context.Request.Path.StartsWithSegments("/admin-json")
+        || InertiaChallengeOptions.DefaultApiRequestPredicate(context);
+    // options.ApiRequestPredicate = null; // only change Inertia visits
+});
+```
+
+**Forbidden visits.** A forbidden Inertia visit is answered with a bare `403` and is not
+redirected to the access-denied page, because that page is usually not an Inertia page. The
+client reports a non-Inertia error response through its `httpException` event. Without a handler,
+it shows the response body in a modal, which is blank unless the application writes a body (for
+example with `UseStatusCodePages()`). You can handle it on the client:
+
+```javascript
+router.on('httpException', (event) => {
+  if (event.detail.response.status === 403) {
+    // show a toast or visit an error page
+    return false; // suppress the default modal
+  }
+})
+```
+
+**Unsupported: challenges that write a page.** A challenge whose handler writes the response
+itself, such as OpenID Connect with `AuthenticationMethod = OpenIdConnectRedirectBehavior.FormPost`,
+is left unchanged and does not work for Inertia visits: the client shows the auto-submitting form
+in its sandboxed error modal, where it posts inside the frame and most identity providers refuse
+to be framed. Use the default redirect (`GET`) authentication method with Inertia.
+
+---
+
 ## Validation
 
 `InertiaValidationFilter` automatically serializes `ModelState` errors to TempData
