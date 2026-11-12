@@ -658,11 +658,14 @@ InertiaNet does not reference the OpenID Connect package. Sign-out is not transl
 remote sign-out (which redirects to the identity provider) as a regular form or link rather than
 an Inertia visit.
 
-**Prefetch.** Inertia prefetches (for example on hover) should have no side effects, and a remote
-challenge would set correlation/nonce cookies for a sign-in that may never happen. A prefetch is
-therefore answered with a location visit to the prefetched URL without invoking the scheme. If the
-prefetch is used, the client loads that page in full and the browser navigation is challenged
-normally.
+**Prefetch.** Inertia prefetches (for example on hover) should have no side effects. Running an
+OpenID Connect (or other remote) challenge on a prefetch would mint a `state` and set nonce and
+correlation cookies, and run the scheme's redirect events, for a page the user may never visit;
+nothing would consume them, and repeated hovers would pile the cookies up. A prefetch is therefore
+answered with a location visit to the prefetched URL without invoking the scheme. If the prefetch
+is used, the client loads that page in full and the browser navigation is challenged normally. A
+consequence is that a scheme that would not redirect (for example bearer-only) answers a prefetch
+with the location-visit `409` rather than its `401`; the following full-page load gets the scheme's real answer.
 
 **Return URL after a mutation.** A `GET` visit returns to the page that was requested. When a
 `POST`/`PUT`/`PATCH`/`DELETE` visit is challenged without an explicit
@@ -680,10 +683,17 @@ that receive `401`/`403`. The default, `InertiaChallengeOptions.DefaultApiReques
 - requests that expect JSON, using the same rule as Laravel's `expectsJson()`: the most preferred
   `Accept` type is JSON, or the request has `X-Requested-With: XMLHttpRequest` and accepts any type
   (this covers Precognition's `Accept: application/json`);
-- script requests that the browser marks with a `Sec-Fetch-Mode` other than `navigate`, such as a
-  plain `fetch()` with the default `Accept: */*`. Browsers send `Sec-Fetch-*` only to secure
+- non-Inertia requests that the browser marks with a `Sec-Fetch-Mode` other than `navigate`, such
+  as a plain `fetch()` with the default `Accept: */*`. Browsers send `Sec-Fetch-*` only to secure
   origins (HTTPS and `localhost`); over plain HTTP such a `fetch()` keeps its redirect unless you
-  customise `ApiRequestPredicate`;
+  customise `ApiRequestPredicate`. This rule is on by default; set
+  `InertiaChallengeOptions.TreatFetchRequestsAsApi = false` to turn it off while keeping the other
+  rules, so such requests keep the sign-in and access-denied redirects (for example when a script
+  fetches HTML pages or fragments and relies on following the sign-in redirect). This is only
+  useful when the challenge redirects to a same-origin sign-in page; with a remote scheme such as
+  OpenID Connect the script gets a CORS failure and the scheme's correlation/nonce cookies are left
+  behind. A custom `ApiRequestPredicate` that does not call `DefaultApiRequestPredicate` ignores
+  this option;
 - requests excluded by `InertiaOptions.RequestPredicate` whose `Accept` header does not list HTML.
   A browser navigation to an excluded path still gets its sign-in redirect.
 
@@ -697,9 +707,19 @@ callback will follow. Cookies set earlier in the request are kept.
     options.ApiRequestPredicate = context =>
         context.Request.Path.StartsWithSegments("/admin-json")
         || InertiaChallengeOptions.DefaultApiRequestPredicate(context);
+    // options.TreatFetchRequestsAsApi = false; // keep redirects for Sec-Fetch-Mode script requests
     // options.ApiRequestPredicate = null; // only change Inertia visits
 });
 ```
+
+**Inertia visits to excluded paths.** An `X-Inertia` request to a path that
+`InertiaOptions.RequestPredicate` excludes is not selected by the default predicate when its
+`Accept` header prefers HTML, as the Inertia client's `text/html, application/xhtml+xml` does, even
+with `Sec-Fetch-Mode: cors`. It keeps the scheme's own answer, for the cookie scheme a `401` +
+`Location`, exactly as without challenge handling. This is intended: an Inertia visit to an API
+path is a client bug, and translating it into a full-page reload would hide that bug. With
+`Accept: */*` or no `Accept` header, the excluded-path rule above selects it and it gets a bare
+`401`.
 
 **Forbidden visits.** A forbidden Inertia visit is answered with a bare `403` and is not
 redirected to the access-denied page, because that page is usually not an Inertia page. The
