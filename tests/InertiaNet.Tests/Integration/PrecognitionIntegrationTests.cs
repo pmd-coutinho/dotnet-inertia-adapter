@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using InertiaNet.Core;
 using InertiaNet.Extensions;
 using InertiaNet.Support;
 using Microsoft.AspNetCore.Builder;
@@ -71,6 +72,29 @@ public class PrecognitionIntegrationTests
     }
 
     [Theory]
+    [InlineData("mvc", null)]
+    [InlineData("minimal", null)]
+    [InlineData("mvc", "Addresses.1.Street")]
+    [InlineData("minimal", "Addresses.1.Street")]
+    [InlineData("mvc", "addresses.1.street")]
+    [InlineData("minimal", "addresses[1].street")]
+    public async Task NullPropertyNamingPolicy_ReturnsClrNamedKeysThatSelectThemselves(string endpoint, string? validateOnly)
+    {
+        // Custom options without a property naming policy serialize props with CLR names; error keys match them.
+        await using var app = await App(options => options.JsonSerializerOptions = new JsonSerializerOptions());
+        using var client = app.GetTestClient();
+        using var request = Request(endpoint, new { email = "invalid", name = "", addresses = new[] { new { street = "Main" }, new { street = "" } } });
+        if (validateOnly is not null) request.Headers.Add(HeaderNames.PrecognitionValidateOnly, validateOnly);
+        using var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var keys = doc.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name);
+        if (validateOnly is null) keys.Should().BeEquivalentTo("Email", "Name", "Addresses.1.Street");
+        else keys.Should().Equal("Addresses.1.Street");
+        app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
+    }
+
+    [Theory]
     [InlineData("mvc")]
     [InlineData("minimal")]
     public async Task OrdinarySubmission_StillExecutesTheHandler(string endpoint)
@@ -100,13 +124,13 @@ public class PrecognitionIntegrationTests
         return request;
     }
 
-    private static async Task<WebApplication> App()
+    private static async Task<WebApplication> App(Action<InertiaOptions>? configure = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton<PrecognitionSideEffects>();
         builder.Services.AddControllersWithViews().AddApplicationPart(typeof(PrecognitionProbeController).Assembly);
-        builder.Services.AddInertia();
+        builder.Services.AddInertia(configure ?? (_ => { }));
         var app = builder.Build();
         app.UseInertia();
         app.MapControllers();

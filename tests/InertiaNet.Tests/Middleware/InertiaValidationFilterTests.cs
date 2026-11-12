@@ -181,6 +181,24 @@ public class InertiaValidationFilterTests
     }
 
     [Fact]
+    public async Task OnResultExecutionAsync_ShouldWriteDotPathsByDefault()
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Values[3].Code", "Code is invalid");
+        modelState.AddModelError("Prices[EUR]", "Price is required");
+
+        var context = CreateResultContext(new RedirectResult("/create"), modelState, tempDataFactory);
+
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+            Task.FromResult(new ResultExecutedContext(context, [], context.Result, controller: null!)));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo("values.3.code", "prices.EUR");
+    }
+
+    [Fact]
     public async Task OnResultExecutionAsync_ShouldUseTheConfiguredPropertyNamingPolicy()
     {
         var tempDataFactory = new FakeTempDataFactory();
@@ -199,5 +217,33 @@ public class InertiaValidationFilterTests
         var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
             (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
         errors.Keys.Should().Equal("shipping_address.post_code");
+    }
+
+    [Theory]
+    [InlineData(false, "email", "address.street", "values.3.code")]
+    [InlineData(true, "Email", "Address.Street", "Values.3.Code")]
+    public async Task OnResultExecutionAsync_ShouldNotRenameMembersWhenTheConfiguredPolicyIsNull(
+        bool customOptions, string flat, string nested, string indexed)
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Email", "Email is required");
+        modelState.AddModelError("Address.Street", "Street is required");
+        modelState.AddModelError("Values[3].Code", "Code is invalid");
+
+        var context = CreateResultContext(new RedirectResult("/create"), modelState, tempDataFactory,
+            configure: options =>
+            {
+                options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots;
+                // Custom options with no PropertyNamingPolicy serialize props with CLR names, so keys keep them too.
+                if (customOptions) options.JsonSerializerOptions = new JsonSerializerOptions();
+            });
+
+        await new InertiaValidationFilter().OnResultExecutionAsync(context, () =>
+            Task.FromResult(new ResultExecutedContext(context, [], context.Result, controller: null!)));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo(flat, nested, indexed);
     }
 }
