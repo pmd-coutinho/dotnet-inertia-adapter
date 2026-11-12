@@ -216,6 +216,27 @@ public class ValidationErrorKeysIntegrationTests
         (await Errors(client)).Keys.Should().Contain("lines.0.quantity").And.NotContain(key => key.StartsWith('$'));
     }
 
+    [Theory]
+    [InlineData("lines", "quantity", "lines.0.quantity")]
+    [InlineData("Lines", "Quantity", "Lines.0.Quantity")]
+    public async Task JsonBindingErrors_KeepTheClientSpellingUnderANullPropertyNamingPolicy(
+        string lines, string quantity, string expected)
+    {
+        await using var app = await App(options => options.JsonSerializerOptions = new JsonSerializerOptions());
+        using var client = app.GetTestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/validation-keys/mvc")
+        {
+            Content = new StringContent($$"""{"Name":"Ana","{{lines}}":[{"{{quantity}}":"many"}]}""", System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(HeaderNames.Inertia, "true");
+
+        using var submit = await client.SendAsync(request);
+
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+        // No policy renames nothing, so only a client that sends CLR-cased names gets keys matching the props.
+        (await Errors(client)).Keys.Should().Contain(expected);
+    }
+
     [Fact]
     public async Task ErrorBagWithAllErrors_MergesTheMessagesOfKeysThatNormalizeToTheSamePath()
     {
