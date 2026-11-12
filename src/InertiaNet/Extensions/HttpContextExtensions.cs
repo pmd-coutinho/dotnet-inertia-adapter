@@ -22,6 +22,11 @@ public static class HttpContextExtensions
     /// Sets validation errors to be forwarded via TempData when the endpoint returns a redirect.
     /// Use with <see cref="InertiaValidationEndpointFilter"/> on Minimal API endpoints.
     /// </summary>
+    /// <remarks>
+    /// Keys may use ASP.NET member paths such as <c>Address.Street</c> or <c>Lines[0].Quantity</c>;
+    /// the filter normalizes them like the MVC filter, according to
+    /// <see cref="Core.InertiaOptions.ValidationErrorKeyFormat"/>.
+    /// </remarks>
     public static void SetInertiaValidationErrors(
         this HttpContext context,
         IDictionary<string, string[]> errors,

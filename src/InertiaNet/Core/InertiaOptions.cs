@@ -57,6 +57,16 @@ public class InertiaOptions
     public bool WithAllErrors { get; set; } = false;
 
     /// <summary>
+    /// How validation error keys forwarded across redirects are written. Member segments always use the
+    /// property naming policy of <see cref="JsonSerializerOptions"/> (camelCase when none is configured),
+    /// so <c>Address.Street</c> becomes <c>address.street</c>. <see cref="ValidationErrorKeyFormat.Brackets"/>
+    /// (the default) keeps indexers as <c>values[3].code</c>; <see cref="ValidationErrorKeyFormat.Dots"/>
+    /// writes <c>values.3.code</c>, the form used by Laravel and Inertia's <c>useForm</c>.
+    /// Precognition responses always use dot paths.
+    /// </summary>
+    public ValidationErrorKeyFormat ValidationErrorKeyFormat { get; set; } = ValidationErrorKeyFormat.Brackets;
+
+    /// <summary>
     /// Default Cache-Control max-age (in seconds) for prefetch responses.
     /// The client may override this via the X-Inertia-Prefetch header.
     /// </summary>

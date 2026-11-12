@@ -117,6 +117,7 @@ builder.Services.AddInertia(options =>
     options.RootView = "App";              // Razor view for initial HTML render
     options.EncryptHistory = false;        // Enable history encryption globally
     options.WithAllErrors = false;         // Return all validation errors per field
+    options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets; // "values[3].code"; Dots → "values.3.code"
     options.ExposeSharedPropKeys = true;   // Include sharedProps key list in responses
     options.PrefetchCacheMaxAge = 10;      // Default Cache-Control max-age for prefetch (seconds)
     options.Version = ManifestVersionStrategy.FromViteOrMix(webRootPath); // Asset versioning
@@ -656,6 +657,32 @@ app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
 }).WithInertiaValidation();
 ```
 
+### Error Keys
+
+Every error-producing path (the MVC filter, all `SetInertiaValidationErrors` overloads and
+Precognition) normalizes keys the same way, one path segment at a time:
+
+- Member segments use the property naming policy of `InertiaOptions.JsonSerializerOptions`,
+  or camelCase when none is configured, so keys line up with the prop names the form was built from.
+- Numeric indexers are kept. Other indexers are dictionary keys and use the configured
+  `DictionaryKeyPolicy` (none by default), matching how dictionary props are serialized.
+- The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed.
+- Keys that normalize to the same path have their messages merged.
+
+`ValidationErrorKeyFormat` chooses how indexers are written for errors forwarded across redirects:
+
+| ModelState / supplied key | `Brackets` (default) | `Dots` | `Preserve` |
+| --- | --- | --- | --- |
+| `Email` | `email` | `email` | `Email` |
+| `Address.Street` | `address.street` | `address.street` | `Address.Street` |
+| `Values[3].Code` | `values[3].code` | `values.3.code` | `Values[3].Code` |
+| `Prices[EUR]` | `prices[EUR]` | `prices.EUR` | `Prices[EUR]` |
+
+`Dots` matches Laravel and the dot paths that Inertia's `useForm` uses for nested fields
+(`form.errors['values.3.code']`), and is recommended for new applications. `Brackets` stays the
+default for compatibility with earlier releases. `Preserve` forwards keys exactly as supplied.
+Precognition responses always use dot paths, because the Precognition client sends and matches them.
+
 ### Error Bags
 
 Scope errors for pages with multiple forms:
@@ -710,7 +737,7 @@ public async Task<IActionResult> Store([FromBody] CreateUserRequest request)
 }
 ```
 
-The MVC filter runs before `[ApiController]` automatic validation responses. It honors `Precognition-Validate-Only` field paths and never executes the action on a validation-only request.
+The MVC filter runs before `[ApiController]` automatic validation responses. It honors `Precognition-Validate-Only` field paths and never executes the action on a validation-only request. Error keys are dot paths (`addresses.0.street`) using the [error key](#error-keys) naming rules, whatever `ValidationErrorKeyFormat` is set to.
 
 Minimal APIs opt in per endpoint or route group:
 
