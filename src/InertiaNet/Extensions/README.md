@@ -7,6 +7,7 @@ Public extensions register the runtime and connect controllers, Minimal APIs, mi
 ## Interface
 
 - `AddInertia` / `AddInertia<TMiddleware>`, `AddInertiaWithSsr` / `AddInertiaWithSsr<TMiddleware>`, `AddInertiaEventHandler<T>`, and `AddViteHelper` configure services.
+- `AddInertiaChallengeHandling` (on `IServiceCollection` or `AuthenticationBuilder`) decorates `IAuthenticationService` so challenges/forbids follow the Inertia protocol.
 - `UseInertia` / `UseInertia<TMiddleware>` install conventional middleware.
 - `ControllerExtensions.Inertia` renders controller responses; `InertiaResults.Inertia` supports objects, dictionaries, typed components, and synchronous/async request factories. `InertiaResults.Location` creates external navigation results.
 - `MapInertia` maps GET routes; `MapInertiaFallback` maps a fallback. Both support static props or request factories and attach component metadata.
@@ -18,6 +19,7 @@ Public extensions register the runtime and connect controllers, Minimal APIs, mi
 ## Invariants
 
 - `AddInertia` uses singleton HTTP-context access and a scoped `IInertiaService`, preserving existing registrations through `TryAdd`. Conventional middleware is activated by `UseMiddleware` rather than registered as a service.
+- `AddInertiaChallengeHandling` registers the authentication core if needed and wraps the existing `IAuthenticationService` once, whatever the call order relative to `AddAuthentication`. Repeated calls only add option configuration.
 - Global MVC Precognition runs at order `-3000`, before the automatic invalid-model filter; validation forwarding is also registered.
 - Option validation requires a positive bounded SSR timeout or `Timeout.InfiniteTimeSpan`, diagnostics entry bounds of 1–10000, a nonnegative slow threshold, and a defined large-integer policy.
 - SSR registration enables SSR before invoking the configuration delegate, registers the named HTTP client, and preserves an existing gateway registration. The delegate can override enabled state.
