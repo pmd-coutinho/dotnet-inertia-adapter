@@ -107,8 +107,10 @@ public class InertiaOptions
      /// </summary>
     /// <remarks>
     /// An Inertia page returned by the handler is sent with status 500 unless it calls
-    /// <see cref="InertiaResult.WithStatus(int)"/>, which always wins (for example a 503 for a maintenance page).
-    /// Other results keep their own status handling.
+    /// <see cref="InertiaResult.WithStatus(int)"/>, which always wins (for example a 503 for a maintenance page),
+    /// or the handler sets <c>context.Response.StatusCode</c> to a status other than the one the response had
+    /// when the handler was called. Assigning that same status is not detected, so use <c>WithStatus</c> to
+    /// send it. Other results keep their own status handling.
     /// Example:
      /// <code>
      /// options.HandleExceptionsUsing = (exception, context) =>

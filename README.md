@@ -1029,14 +1029,19 @@ builder.Services.AddInertia(options =>
 An Inertia page returned by the handler is sent with status 500, on the initial HTML response and on the
 JSON response for Inertia visits, as Laravel's exception responses carry the real status. Call
 `WithStatus` to send another status, for example `.WithStatus(StatusCodes.Status503ServiceUnavailable)`
-for a maintenance page; an explicit status always wins. Other results returned by the handler set their
-own status.
+for a maintenance page; an explicit status always wins. A status the handler assigns itself, as in
+`context.Response.StatusCode = 404` before returning the page, is also kept. InertiaNet detects it by
+comparing with the status the response had when the handler was called (normally what it had before the
+failed render), so assigning that same status is not detected and the page is still sent with 500; use
+`WithStatus` for that case. Other results returned by the handler set their own status.
 
 > **Behaviour change.** Before this release a handler page without `WithStatus` kept the status the
 > response had before the failed render, normally 200. It is now 500, so the client raises its
 > `httpException` event and `onHttpException` callback for it (see [Status codes](#status-codes)). Add
 > `.WithStatus(StatusCodes.Status200OK)` to keep the old status, for example in a handler that re-renders
 > the page without SSR (`inertia.WithoutSsr()`) after an SSR failure and should still count as a success.
+> This includes a page rendered during status code re-execution: if the 404 page's own render fails and
+> the handler returns a page, that page now reports 500, not 404.
 
 The handler may also return a normal ASP.NET Core result when that is more appropriate:
 
