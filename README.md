@@ -915,10 +915,62 @@ form.reset() })` therefore also runs after a 500 page. Check `page.component` th
 
 ### Application error pages
 
-ASP.NET Core's exception handler and status code pages can render an Inertia error page. Both
-re-execute the pipeline on the error route. The page `url`, and the `X-Inertia-Location` of an asset
-version conflict detected on the error route, is the URL of the original request, not the error
-route, so the browser address does not change.
+`UseInertiaErrorPages()` renders ASP.NET Core's error responses as an Inertia page. It is opt-in and
+packages ASP.NET Core's exception handler and status code pages with an error route:
+
+```csharp
+var app = builder.Build();
+
+app.UseInertiaErrorPages(); // before UseInertia
+app.UseInertia();
+app.MapControllers();
+```
+
+- **Status code pages.** Empty 4xx/5xx responses (an unmatched route, `Results.NotFound()`, a 403 from
+  authorization) re-execute the pipeline on `/error/{status}`.
+- **Exceptions.** Unhandled exceptions re-execute it on `/error/500`. This is off in the Development
+  environment by default, so the developer exception page keeps showing exception details there.
+- **The error route.** `/error/{status:int:range(400,599)}` is mapped for every method, because
+  re-execution keeps the original method and a failed POST arrives as a POST. It renders the `ErrorPage`
+  component with a `status` prop and that status, on the initial HTML response and on the JSON response
+  for Inertia visits. Statuses outside the range (`/error/302`) get the 404 page instead of failing in
+  `WithStatus`.
+- **Plain error responses stay plain.** JSON API requests (as classified by
+  `InertiaChallengeOptions.DefaultApiRequestPredicate`: they prefer JSON or are a script `fetch()`),
+  Precognition requests and paths excluded by `InertiaOptions.RequestPredicate` keep ASP.NET Core's
+  responses. The check runs on the original request, not on the error route.
+
+Everything is configurable:
+
+```csharp
+app.UseInertiaErrorPages(options =>
+{
+    options.Component = "Errors/Status";      // default "ErrorPage", as in the Inertia docs
+    options.Path = "/errors";                 // default "/error": /errors/{status}, /errors/500
+    options.HandleExceptions = true;          // default: false in Development, true elsewhere
+    options.RequestPredicate = context =>     // default InertiaErrorPageOptions.DefaultRequestPredicate
+        InertiaErrorPageOptions.DefaultRequestPredicate(context)
+        && !context.Request.Path.StartsWithSegments("/webhooks");
+});
+```
+
+The page component receives the status and can choose its own text:
+
+```vue
+<script setup>
+defineProps({ status: Number })
+</script>
+```
+
+Call it once, before `UseInertia()` (and before `UseAuthentication()`/`UseAuthorization()` if those
+errors should be rendered too). An explicit `UseRouting()` may come before or after it. The error route is
+an ordinary endpoint, so a global fallback authorization policy also applies to it; use
+`options.ConfigureEndpoint = endpoint => endpoint.AllowAnonymous()` if anonymous users must see error
+pages (`ConfigureEndpoint` also takes rate limiting or other endpoint conventions). Pathfinder cannot see
+the component the helper renders, so declare its `status` prop on the client yourself.
+
+The page `url`, and the `X-Inertia-Location` of an asset version conflict detected on the error route, is
+the URL of the original request, not the error route, so the browser address does not change.
 
 On re-execution the Inertia middleware runs again only when `UseInertia` comes after the error
 middlewares and `RequestPredicate` matches the error path. It then calls `Share` again and shares
@@ -928,9 +980,14 @@ while flash data is kept. Laravel's exception
 responses leave shared data out by default, so keep error pages independent of shared props where
 you can.
 
-```csharp
-var app = builder.Build();
+Status code pages only replace empty 4xx/5xx responses. InertiaNet's own 409 responses (asset
+version conflicts, `Location` redirects and fragment redirects) opt out, so they still reach the
+client.
 
+The helper is equivalent to this hand-written pattern, which you can use instead when you need more
+control, such as per-status props:
+
+```csharp
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/error/500");
 app.UseStatusCodePagesWithReExecute("/error/{0}");
@@ -945,10 +1002,10 @@ app.Map("/error/{status:int:range(400,599)}", (int status, IInertiaService inert
     inertia.Render("Errors/Status", new { status }).WithStatus(status));
 ```
 
-Status code pages only replace empty 4xx/5xx responses. InertiaNet's own 409 responses (asset
-version conflicts, `Location` redirects and fragment redirects) opt out, so they still reach the
-client. Requests that should keep plain error responses, such as JSON APIs, can be excluded with
-`UseWhen`, or the error endpoint can check `context.Request.IsInertia()` and the `Accept` header.
+When writing it by hand, exclude JSON APIs in the error endpoint (check `context.Request.IsInertia()`
+and the `Accept` header) rather than wrapping the error middlewares in `UseWhen`: on `WebApplication` a
+`UseWhen` branch loses the global route builder, so the re-executed request no longer reaches the error
+route and every error becomes an empty 404 or the original exception.
 
 ### Render failures
 

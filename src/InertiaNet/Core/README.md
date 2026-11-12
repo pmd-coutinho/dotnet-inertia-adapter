@@ -12,7 +12,7 @@ The scoped service and MVC/Minimal API result coordinate props, protocol pages, 
 - `InertiaComponent<TProps>` declares a nonblank component name. `InertiaPropTypeAttribute` supplies a resolved-type generation hint on a property or field.
 - `IInertiaEventHandler` exposes `OnAfterResolveProps` and `OnBeforeRender` hooks with default no-op implementations.
 - `InertiaPage` contains required component/props/URL plus optional version, shared/deferred/merge/scroll/once/rescued metadata, flash data, and history/large-integer flags.
-- `InertiaOptions`, `SsrOptions`, `PagesOptions`, `PropDiagnosticsOptions`, and `ViteOptions` configure runtime behavior. `ValidationErrorKeyFormat` selects how forwarded validation error keys write indexers (dot paths by default).
+- `InertiaOptions`, `SsrOptions`, `PagesOptions`, `PropDiagnosticsOptions`, and `ViteOptions` configure runtime behavior. `InertiaErrorPageOptions` configures `UseInertiaErrorPages()` (component, path, exception handling, request selection and the error endpoint). `ValidationErrorKeyFormat` selects how forwarded validation error keys write indexers (dot paths by default).
 - Internal service, request-settings, and JSON helpers implement accumulation and serialization; they are not application extension points.
 
 ## Invariants
