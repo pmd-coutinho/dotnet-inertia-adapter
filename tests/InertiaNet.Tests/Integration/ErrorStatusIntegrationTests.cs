@@ -583,10 +583,14 @@ public class ErrorStatusIntegrationTests
             ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(StatusCodes.Status503ServiceUnavailable)),
         }));
         // A render that fails while the response already carries 404 still reports the failure as a 500.
-        app.MapGet("/minimal/render-failure/on-404", (IInertiaService inertia) => inertia.Render("Errors/Status", new Dictionary<string, object?>
+        app.MapGet("/minimal/render-failure/on-404", (HttpContext context, IInertiaService inertia) =>
         {
-            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
-        }).WithStatus(StatusCodes.Status404NotFound));
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return inertia.Render("Errors/Status", new Dictionary<string, object?>
+            {
+                ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+            });
+        });
         app.MapGet("/minimal/serialization-failure", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
         {
             ["report"] = new ErrorStatusThrowingValue(),

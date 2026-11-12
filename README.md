@@ -1035,7 +1035,8 @@ own status.
 > **Behaviour change.** Before this release a handler page without `WithStatus` kept the status the
 > response had before the failed render, normally 200. It is now 500, so the client raises its
 > `httpException` event and `onHttpException` callback for it (see [Status codes](#status-codes)). Add
-> `.WithStatus(StatusCodes.Status200OK)` to keep the old status.
+> `.WithStatus(StatusCodes.Status200OK)` to keep the old status, for example in a handler that re-renders
+> the page without SSR (`inertia.WithoutSsr()`) after an SSR failure and should still count as a success.
 
 The handler may also return a normal ASP.NET Core result when that is more appropriate:
 
