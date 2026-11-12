@@ -140,4 +140,84 @@ public class InertiaValidationEndpointFilterTests
         errors["email"].Should().ContainSingle().Which.Should().Be("Email is required");
         errors["password"].Should().ContainSingle().Which.Should().Be("The input was not valid.");
     }
+    public static TheoryData<string> ErrorSources => ["dictionary", "problem", "modelState"];
+
+    [Theory]
+    [MemberData(nameof(ErrorSources))]
+    public async Task InvokeAsync_ShouldNormalizeKeysLikeTheMvcFilter(string source)
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var context = CreateContextWithTempData(tempDataFactory);
+        var raw = new Dictionary<string, string[]>
+        {
+            ["Email"] = ["Email is required"],
+            ["Address.Street"] = ["Street is required"],
+            ["Values[3].Code"] = ["Code is invalid"],
+            ["Prices[EUR]"] = ["Price is required"],
+            ["name"] = ["Name is required"],
+        };
+        switch (source)
+        {
+            case "dictionary":
+                context.SetInertiaValidationErrors(raw);
+                break;
+            case "problem":
+                context.SetInertiaValidationErrors(new ValidationProblemDetails(raw));
+                break;
+            default:
+                var modelState = new ModelStateDictionary();
+                foreach (var (key, messages) in raw)
+                    foreach (var message in messages) modelState.AddModelError(key, message);
+                context.SetInertiaValidationErrors(modelState);
+                break;
+        }
+
+        await new InertiaValidationEndpointFilter().InvokeAsync(new DefaultEndpointFilterInvocationContext(context),
+            _ => ValueTask.FromResult<object?>(Results.Redirect("/create")));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo("email", "address.street", "values[3].code", "prices[EUR]", "name");
+        errors["values[3].code"].Should().Equal("Code is invalid");
+    }
+
+    [Theory]
+    [InlineData(ValidationErrorKeyFormat.Dots, "values.3.code")]
+    [InlineData(ValidationErrorKeyFormat.Preserve, "Values[3].Code")]
+    public async Task InvokeAsync_ShouldHonorTheConfiguredKeyFormat(ValidationErrorKeyFormat format, string expected)
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var context = HttpContextHelper.Create("POST", "/submit", configureServices: services =>
+        {
+            services.AddSingleton<ITempDataDictionaryFactory>(tempDataFactory);
+            services.Configure<InertiaOptions>(options => options.ValidationErrorKeyFormat = format);
+        });
+        context.SetInertiaValidationErrors(new Dictionary<string, string[]> { ["Values[3].Code"] = ["Invalid"] });
+
+        await new InertiaValidationEndpointFilter().InvokeAsync(new DefaultEndpointFilterInvocationContext(context),
+            _ => ValueTask.FromResult<object?>(Results.Redirect("/create")));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().Equal(expected);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldMergeKeysThatNormalizeToTheSamePath()
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var context = CreateContextWithTempData(tempDataFactory);
+        context.SetInertiaValidationErrors(new Dictionary<string, string[]>
+        {
+            ["Email"] = ["Email is required"],
+            ["email"] = ["Email is invalid"],
+        });
+
+        await new InertiaValidationEndpointFilter().InvokeAsync(new DefaultEndpointFilterInvocationContext(context),
+            _ => ValueTask.FromResult<object?>(Results.Redirect("/create")));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Should().ContainSingle().Which.Value.Should().Equal("Email is required", "Email is invalid");
+    }
 }

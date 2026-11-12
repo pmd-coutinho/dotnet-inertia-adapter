@@ -19,11 +19,11 @@ Public extensions register the runtime and connect controllers, Minimal APIs, mi
 
 - `AddInertia` uses singleton HTTP-context access and a scoped `IInertiaService`, preserving existing registrations through `TryAdd`. Conventional middleware is activated by `UseMiddleware` rather than registered as a service.
 - Global MVC Precognition runs at order `-3000`, before the automatic invalid-model filter; validation forwarding is also registered.
-- Option validation requires a positive bounded SSR timeout or `Timeout.InfiniteTimeSpan`, diagnostics entry bounds of 1–10000, a nonnegative slow threshold, and a defined large-integer policy.
+- Option validation requires a positive bounded SSR timeout or `Timeout.InfiniteTimeSpan`, diagnostics entry bounds of 1–10000, a nonnegative slow threshold, and defined large-integer and validation error key formats.
 - SSR registration enables SSR before invoking the configuration delegate, registers the named HTTP client, and preserves an existing gateway registration. The delegate can override enabled state.
 - Result factories resolve the scoped service at execution; async factories receive `RequestAborted`.
 - `IsInertia()` checks header presence regardless of its value. List header readers split comma-separated values and trim/remove empty entries.
-- Validation helpers copy errors to request items; redirect persistence requires the corresponding filter. Health-check registration does not map a public health endpoint.
+- Validation helpers copy errors to request items; redirect persistence requires the corresponding filter, which normalizes their keys like the MVC filter. Health-check registration does not map a public health endpoint.
 
 ## Side Effects
 

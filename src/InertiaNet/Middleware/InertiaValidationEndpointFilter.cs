@@ -23,6 +23,7 @@ namespace InertiaNet.Middleware;
 /// <para>
 /// Set validation errors in the endpoint via
 /// <c>httpContext.SetInertiaValidationErrors(errors)</c> before returning a redirect.
+/// Keys are normalized like the MVC filter, according to <see cref="InertiaOptions.ValidationErrorKeyFormat"/>.
 /// </para>
 /// </summary>
 public sealed class InertiaValidationEndpointFilter : IEndpointFilter
@@ -47,7 +48,8 @@ public sealed class InertiaValidationEndpointFilter : IEndpointFilter
             if (tempDataFactory is not null)
             {
                 var tempData = tempDataFactory.GetTempData(context.HttpContext);
-                tempData[SessionKeys.ValidationErrors] = JsonSerializer.Serialize(errors);
+                tempData[SessionKeys.ValidationErrors] = JsonSerializer.Serialize(
+                    ValidationErrorKeys.From(context.HttpContext).Normalize(errors));
 
                 if (context.HttpContext.Items.TryGetValue(ErrorBagKey, out var bagObj) && bagObj is string bag)
                     tempData[SessionKeys.ErrorBag] = bag;

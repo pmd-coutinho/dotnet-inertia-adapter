@@ -10,7 +10,8 @@ Request lifecycle middleware connects shared props, asset versions, TempData, re
 - `EncryptHistoryMiddleware` and the MVC `[EncryptHistory]` attribute enable request-level history encryption.
 - `InertiaPrecognitionFilter` and `InertiaPrecognitionEndpointFilter` handle validation-only MVC and Minimal API requests.
 - `InertiaValidationFilter` and `InertiaValidationEndpointFilter` forward errors across redirects.
-- Internal `PrecognitionValidation` supplies recursive DataAnnotations validation, field selection, error paths, and response headers.
+- Internal `PrecognitionValidation` supplies recursive DataAnnotations validation, field selection, and response headers.
+- Internal `ValidationErrorKeys` normalizes error keys for both validation forwarding and Precognition.
 
 ## Invariants
 
@@ -23,7 +24,8 @@ Request lifecycle middleware connects shared props, asset versions, TempData, re
 - Unstarted empty Inertia responses invoke the empty-response hook when `RedirectEmptyResponses` is enabled (the default), except Precognition. Mutation-method `302` redirects become `303`; eligible fragment redirects become `409` with `X-Inertia-Redirect`.
 - Default empty-response redirects accept safe relative or same-origin Referer URLs, otherwise use the current request URL.
 - `Precognition: true` skips the action/endpoint body and returns `204` for valid input or `422` with selected errors. Headers vary on Precognition and confirm successful validation when valid.
-- Minimal API Precognition validates bound non-service arguments with DataAnnotations, avoids cycles, and bounds recursion. Error paths normalize camelCase and array indices; validate-only selection includes related parent/child paths.
+- Minimal API Precognition validates bound non-service arguments with DataAnnotations, avoids cycles, and bounds recursion. Precognition error paths are always dot paths; validate-only selection includes related parent/child paths and compares fields segment by segment, ignoring case and bracket-or-dot indexer spelling, so every returned key selects itself.
+- Error keys are normalized per path segment: member names use the configured property naming policy (camelCase by default), numeric indexers are kept, other indexers use the dictionary key policy, a leading `$` JSON path root is removed, and colliding keys merge their messages. Forwarded errors follow `ValidationErrorKeyFormat` (`Brackets` by default, `Dots`, or `Preserve`), and restored error and error-bag keys are literal, so `DictionaryKeyPolicy` does not rename them again.
 - MVC validation forwarding requires `X-Inertia`, invalid ModelState, and a recognized redirect result. Minimal API forwarding requires explicitly stored errors and a recognized redirect result; both support error bags and the configured request predicate.
 
 ## Side Effects
