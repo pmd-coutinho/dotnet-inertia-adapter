@@ -139,9 +139,11 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
     }
 
     // An X-Inertia request to a path that InertiaOptions.RequestPredicate excludes is not an
-    // Inertia visit, and the default API predicate skips it (the client's Accept lists HTML and the
-    // Sec-Fetch-Mode rule ignores X-Inertia requests), so it keeps the scheme's own answer. That is intended: an Inertia visit to an API path is a client bug, and translating
-    // it would hide the bug behind a full-page reload.
+    // Inertia visit. When its Accept prefers HTML, as the Inertia client's does, the default API
+    // predicate skips it (the Sec-Fetch-Mode rule ignores X-Inertia requests), so it keeps the
+    // scheme's own answer. That is intended: an Inertia visit to an API path is a client bug, and
+    // translating it would hide the bug behind a full-page reload. With Accept: */* or no Accept
+    // header, the excluded-path rule selects it as an API request.
     private RequestKind Classify(HttpContext context)
     {
         var requestPredicate = context.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate;

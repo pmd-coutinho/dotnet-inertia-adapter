@@ -656,7 +656,7 @@ nothing would consume them, and repeated hovers would pile the cookies up. A pre
 answered with a location visit to the prefetched URL without invoking the scheme. If the prefetch
 is used, the client loads that page in full and the browser navigation is challenged normally. A
 consequence is that a scheme that would not redirect (for example bearer-only) answers a prefetch
-with that `409` rather than its `401`; the following full-page load gets the scheme's real answer.
+with the location-visit `409` rather than its `401`; the following full-page load gets the scheme's real answer.
 
 **Return URL after a mutation.** A `GET` visit returns to the page that was requested. When a
 `POST`/`PUT`/`PATCH`/`DELETE` visit is challenged without an explicit
@@ -679,9 +679,12 @@ that receive `401`/`403`. The default, `InertiaChallengeOptions.DefaultApiReques
   origins (HTTPS and `localhost`); over plain HTTP such a `fetch()` keeps its redirect unless you
   customise `ApiRequestPredicate`. This rule is on by default; set
   `InertiaChallengeOptions.TreatFetchRequestsAsApi = false` to turn it off while keeping the other
-  rules (for example when a script fetches HTML pages or fragments and relies on following the
-  sign-in redirect). A custom `ApiRequestPredicate` that does not call `DefaultApiRequestPredicate`
-  ignores this option;
+  rules, so such requests keep the sign-in and access-denied redirects (for example when a script
+  fetches HTML pages or fragments and relies on following the sign-in redirect). This is only
+  useful when the challenge redirects to a same-origin sign-in page; with a remote scheme such as
+  OpenID Connect the script gets a CORS failure and the scheme's correlation/nonce cookies are left
+  behind. A custom `ApiRequestPredicate` that does not call `DefaultApiRequestPredicate` ignores
+  this option;
 - requests excluded by `InertiaOptions.RequestPredicate` whose `Accept` header does not list HTML.
   A browser navigation to an excluded path still gets its sign-in redirect.
 
@@ -701,10 +704,13 @@ callback will follow. Cookies set earlier in the request are kept.
 ```
 
 **Inertia visits to excluded paths.** An `X-Inertia` request to a path that
-`InertiaOptions.RequestPredicate` excludes is not translated by the default predicate, even with
-`Sec-Fetch-Mode: cors`. It keeps the scheme's own answer, for the cookie scheme a `401` + `Location`, exactly as without
-challenge handling. This is intended: an Inertia visit to an API path is a client bug, and
-translating it into a full-page reload would hide that bug.
+`InertiaOptions.RequestPredicate` excludes is not selected by the default predicate when its
+`Accept` header prefers HTML, as the Inertia client's `text/html, application/xhtml+xml` does, even
+with `Sec-Fetch-Mode: cors`. It keeps the scheme's own answer, for the cookie scheme a `401` +
+`Location`, exactly as without challenge handling. This is intended: an Inertia visit to an API
+path is a client bug, and translating it into a full-page reload would hide that bug. With
+`Accept: */*` or no `Accept` header, the excluded-path rule above selects it and it gets a bare
+`401`.
 
 **Forbidden visits.** A forbidden Inertia visit is answered with a bare `403` and is not
 redirected to the access-denied page, because that page is usually not an Inertia page. The

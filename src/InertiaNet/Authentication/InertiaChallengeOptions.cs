@@ -27,10 +27,12 @@ public class InertiaChallengeOptions
     /// Whether <see cref="DefaultApiRequestPredicate"/> treats a non-Inertia request whose
     /// <c>Sec-Fetch-Mode</c> header is present and is not <c>navigate</c> (any script or subresource
     /// request such as a plain <c>fetch()</c>, not only <c>cors</c> mode) as an API request.
-    /// Defaults to <see langword="true"/>. Set to <see langword="false"/> to keep the sign-in
-    /// redirect for such requests (for example when a script fetches HTML pages or fragments and
-    /// relies on following the sign-in redirect) while keeping the default predicate's other
-    /// rules. A custom
+    /// Defaults to <see langword="true"/>. Set to <see langword="false"/> to keep the sign-in and
+    /// access-denied redirects for such requests (for example when a script fetches HTML pages or
+    /// fragments and relies on following the sign-in redirect) while keeping the default
+    /// predicate's other rules. This is only useful when the challenge redirects to a same-origin
+    /// sign-in page; with a remote scheme such as OpenID Connect the script gets a CORS failure and
+    /// the scheme's correlation/nonce cookies are left behind. A custom
     /// <see cref="ApiRequestPredicate"/> that does not call <see cref="DefaultApiRequestPredicate"/>
     /// ignores this option.
     /// </summary>

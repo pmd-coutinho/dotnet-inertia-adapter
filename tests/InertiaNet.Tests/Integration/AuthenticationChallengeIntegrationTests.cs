@@ -409,8 +409,28 @@ public class AuthenticationChallengeIntegrationTests
         new InertiaChallengeOptions().TreatFetchRequestsAsApi.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(null, true)] // no RequestServices: the rule applies
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void DefaultApiRequestPredicate_ReadsTreatFetchRequestsAsApiFromRequestServices(
+        bool? treatFetchRequestsAsApi, bool expected)
+    {
+        var context = new DefaultHttpContext();
+        if (treatFetchRequestsAsApi is { } value)
+        {
+            context.RequestServices = new ServiceCollection()
+                .Configure<InertiaChallengeOptions>(options => options.TreatFetchRequestsAsApi = value)
+                .BuildServiceProvider();
+        }
+        context.Request.Headers.Accept = "*/*";
+        context.Request.Headers["Sec-Fetch-Mode"] = "cors";
+
+        InertiaChallengeOptions.DefaultApiRequestPredicate(context).Should().Be(expected);
+    }
+
     [Fact]
-    public async Task FetchRequest_WithTreatFetchRequestsAsApiDisabled_KeepsTheLoginRedirect()
+    public async Task FetchRequest_WithTreatFetchRequestsAsApiDisabled_KeepsTheSignInAndAccessDeniedRedirects()
     {
         await using var app = await Fixture.Create(configure: options => options.TreatFetchRequestsAsApi = false);
 
@@ -421,6 +441,17 @@ public class AuthenticationChallengeIntegrationTests
 
         fetchResponse.StatusCode.Should().Be(HttpStatusCode.Redirect);
         fetchResponse.Headers.Location!.ToString().Should().Be($"{Login}?ReturnUrl=%2Freports");
+
+        // Forbid keeps the access-denied redirect too.
+        var cookie = await app.SignIn();
+        using var forbidden = new HttpRequestMessage(HttpMethod.Get, "/admin");
+        forbidden.Headers.TryAddWithoutValidation("Accept", "*/*");
+        forbidden.Headers.Add("Sec-Fetch-Mode", "cors");
+        forbidden.Headers.Add("Cookie", cookie);
+        using var forbiddenResponse = await app.Send(forbidden);
+
+        forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        forbiddenResponse.Headers.Location!.ToString().Should().Be($"{Denied}?ReturnUrl=%2Fadmin");
 
         // The default predicate's other rules still apply.
         using var json = new HttpRequestMessage(HttpMethod.Get, "/reports");
@@ -435,6 +466,20 @@ public class AuthenticationChallengeIntegrationTests
         using var excludedResponse = await app.Send(excluded);
         excludedResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         excludedResponse.Headers.Location.Should().BeNull();
+
+        using var ajax = new HttpRequestMessage(HttpMethod.Get, "/reports");
+        ajax.Headers.TryAddWithoutValidation("Accept", "*/*");
+        ajax.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        ajax.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var ajaxResponse = await app.Send(ajax);
+        ajaxResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        ajaxResponse.Headers.Location.Should().BeNull();
+
+        // Inertia visits are not affected by the option.
+        using var inertia = Inertia(HttpMethod.Get, "/reports");
+        inertia.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var inertiaResponse = await app.Send(inertia);
+        inertiaResponse.AssertInertiaRedirect().To($"{Login}?ReturnUrl=%2Freports");
     }
 
     [Theory]
@@ -479,6 +524,26 @@ public class AuthenticationChallengeIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         response.Headers.Location!.ToString().Should().Be($"{Login}?ReturnUrl=%2Fapi%2Forders");
         response.Headers.Contains(HeaderNames.Location).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("*/*", true)]
+    [InlineData("*/*", false)]
+    [InlineData(null, false)]
+    public async Task InertiaVisit_ToAnExcludedPath_WithoutAnHtmlAccept_Returns401(string? accept, bool xhr)
+    {
+        await using var app = await Fixture.Create();
+
+        // Only an Accept that prefers HTML (the real client's) keeps the scheme's own answer; the
+        // excluded-path rule selects anything else as an API request.
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/orders");
+        request.Headers.Add(HeaderNames.Inertia, "true");
+        if (accept is not null) request.Headers.TryAddWithoutValidation("Accept", accept);
+        if (xhr) request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        using var response = await app.Send(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Headers.Location.Should().BeNull();
     }
 
     [Theory]
