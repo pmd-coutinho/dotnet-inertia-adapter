@@ -12,6 +12,8 @@ namespace InertiaNet.Extensions;
 /// </summary>
 public static class ApplicationBuilderExtensions
 {
+    private const string ErrorPagesRegisteredKey = "InertiaNet.ErrorPagesRegistered";
+
     /// <summary>
     /// Registers the default <see cref="InertiaMiddleware"/> in the pipeline.
     /// </summary>
@@ -42,13 +44,21 @@ public static class ApplicationBuilderExtensions
     /// <param name="configure">Optional configuration of the component, path and request selection.</param>
     /// <returns>The application, for chaining.</returns>
     /// <exception cref="ArgumentException">The configured component or path is invalid.</exception>
+    /// <exception cref="InvalidOperationException">The helper was already called on this application.</exception>
     public static WebApplication UseInertiaErrorPages(this WebApplication app, Action<InertiaErrorPageOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        // A second call would map the error route twice, and every re-executed error would then fail with an
+        // AmbiguousMatchException inside the error handler.
+        var properties = ((IApplicationBuilder)app).Properties;
+        if (properties.ContainsKey(ErrorPagesRegisteredKey))
+            throw new InvalidOperationException("UseInertiaErrorPages() can only be called once per application.");
+
         var options = new InertiaErrorPageOptions { HandleExceptions = !app.Environment.IsDevelopment() };
         configure?.Invoke(options);
         options.Validate();
+        properties[ErrorPagesRegisteredKey] = true;
 
         var path = options.Path.TrimEnd('/');
         var component = options.Component;
@@ -73,6 +83,8 @@ public static class ApplicationBuilderExtensions
                 inertia.Render(component, new { status }).WithStatus(status))
             .WithInertiaComponent(component)
             .ExcludeFromDescription();
+        if (options.AllowAnonymous)
+            endpoint.AllowAnonymous();
         options.ConfigureEndpoint?.Invoke(endpoint);
 
         return app;

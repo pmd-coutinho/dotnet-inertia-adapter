@@ -704,8 +704,9 @@ callback will follow. Cookies set earlier in the request are kept.
 **Forbidden visits.** A forbidden Inertia visit is answered with a bare `403` and is not
 redirected to the access-denied page, because that page is usually not an Inertia page. The
 client reports a non-Inertia error response through its `httpException` event. Without a handler,
-it shows the response body in a modal, which is blank unless the application writes a body (for
-example with `UseStatusCodePages()`). You can handle it on the client:
+it shows the response body in a modal, which is blank unless the application writes a body. With
+[`UseInertiaErrorPages()`](#application-error-pages) the `403` is rendered as the Inertia error page
+instead, so the client shows that page rather than a modal. You can also handle it on the client:
 
 ```javascript
 router.on('httpException', (event) => {
@@ -935,10 +936,16 @@ app.MapControllers();
   component with a `status` prop and that status, on the initial HTML response and on the JSON response
   for Inertia visits. Statuses outside the range (`/error/302`) get the 404 page instead of failing in
   `WithStatus`.
-- **Plain error responses stay plain.** JSON API requests (as classified by
-  `InertiaChallengeOptions.DefaultApiRequestPredicate`: they prefer JSON or are a script `fetch()`),
-  Precognition requests and paths excluded by `InertiaOptions.RequestPredicate` keep ASP.NET Core's
-  responses. The check runs on the original request, not on the error route.
+- **Plain error responses stay plain.** JSON API requests, Precognition requests and paths excluded by
+  `InertiaOptions.RequestPredicate` keep ASP.NET Core's responses. API requests are classified by the
+  configured `InertiaChallengeOptions.ApiRequestPredicate`, which is
+  `InertiaChallengeOptions.DefaultApiRequestPredicate` (they prefer JSON or are a script `fetch()`) unless
+  you replaced it, for example in `AddInertiaChallengeHandling`; setting it to null there only turns off
+  the challenge translation, and error pages then keep using the default. The check runs on the original
+  request, not on the error route.
+- **Anonymous access.** The error route allows anonymous users, so a fallback authorization policy does
+  not send an anonymous user's 404 on a public page to the sign-in page with `/error/404` as the return
+  URL. The page only exposes the status, as Laravel renders its exception pages outside route middleware.
 
 Everything is configurable:
 
@@ -948,6 +955,7 @@ app.UseInertiaErrorPages(options =>
     options.Component = "Errors/Status";      // default "ErrorPage", as in the Inertia docs
     options.Path = "/errors";                 // default "/error": /errors/{status}, /errors/500
     options.HandleExceptions = true;          // default: false in Development, true elsewhere
+    options.AllowAnonymous = true;            // default true: the error route skips authorization
     options.RequestPredicate = context =>     // default InertiaErrorPageOptions.DefaultRequestPredicate
         InertiaErrorPageOptions.DefaultRequestPredicate(context)
         && !context.Request.Path.StartsWithSegments("/webhooks");
@@ -963,11 +971,14 @@ defineProps({ status: Number })
 ```
 
 Call it once, before `UseInertia()` (and before `UseAuthentication()`/`UseAuthorization()` if those
-errors should be rendered too). An explicit `UseRouting()` may come before or after it. The error route is
-an ordinary endpoint, so a global fallback authorization policy also applies to it; use
-`options.ConfigureEndpoint = endpoint => endpoint.AllowAnonymous()` if anonymous users must see error
-pages (`ConfigureEndpoint` also takes rate limiting or other endpoint conventions). Pathfinder cannot see
-the component the helper renders, so declare its `status` prop on the client yourself.
+errors should be rendered too); a second call throws `InvalidOperationException`. An explicit
+`UseRouting()` may come before or after it. `Path` cannot be `/`, which would turn top-level URLs such as
+`/404` into error pages. The helper is an extension of `WebApplication`; an app built with
+`Startup`/`IApplicationBuilder` can use the hand-written pattern below. `ConfigureEndpoint` receives the
+error endpoint for rate limiting or other endpoint conventions. It runs after `AllowAnonymous`, so an
+authorization requirement added there (`endpoint.RequireAuthorization("Staff")`) only applies when you also
+set `options.AllowAnonymous = false`. Pathfinder cannot see the component the helper renders, so declare
+its `status` prop on the client yourself.
 
 The page `url`, and the `X-Inertia-Location` of an asset version conflict detected on the error route, is
 the URL of the original request, not the error route, so the browser address does not change.
@@ -980,12 +991,17 @@ while flash data is kept. Laravel's exception
 responses leave shared data out by default, so keep error pages independent of shared props where
 you can.
 
-Status code pages only replace empty 4xx/5xx responses. InertiaNet's own 409 responses (asset
-version conflicts, `Location` redirects and fragment redirects) opt out, so they still reach the
+Status code pages only replace empty 4xx/5xx responses, so an error response that already has a body,
+such as the ProblemDetails body an `[ApiController]` action writes for `NotFound()`, is left alone.
+InertiaNet's own 409 responses (asset version conflicts, `Location` redirects, fragment redirects and
+the sign-in location visits of [challenge handling](#authentication)) opt out, so they still reach the
 client.
 
-The helper is equivalent to this hand-written pattern, which you can use instead when you need more
-control, such as per-status props:
+The helper is built on this hand-written pattern, which you can use instead when you need more control,
+such as per-status props, or when the app does not use `WebApplication`. The sketch is not equivalent: it
+has no request selection (JSON API, Precognition and excluded-path requests get the error page too), no
+`AllowAnonymous`, no `HandleExceptions` option and no guard against a second registration, and it renders
+an `Errors/Status` component rather than `ErrorPage`:
 
 ```csharp
 if (!app.Environment.IsDevelopment())
@@ -1003,9 +1019,10 @@ app.Map("/error/{status:int:range(400,599)}", (int status, IInertiaService inert
 ```
 
 When writing it by hand, exclude JSON APIs in the error endpoint (check `context.Request.IsInertia()`
-and the `Accept` header) rather than wrapping the error middlewares in `UseWhen`: on `WebApplication` a
-`UseWhen` branch loses the global route builder, so the re-executed request no longer reaches the error
-route and every error becomes an empty 404 or the original exception.
+and the `Accept` header) rather than wrapping the error middlewares in `UseWhen`. On `WebApplication`,
+when routing runs before the branch (the default: implicit routing, or an explicit `UseRouting()` before
+it), a `UseWhen` branch loses the global route builder, so the re-executed request no longer reaches the
+error route and every error becomes an empty 404 or the original exception.
 
 ### Render failures
 

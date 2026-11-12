@@ -21,7 +21,8 @@ public class InertiaErrorPageOptions
 
     /// <summary>
     /// The path the error route is mapped under, as <c>{Path}/{status}</c>. Defaults to <c>"/error"</c>.
-    /// It must start with <c>/</c> and cannot contain route parameters or a query string.
+    /// It must start with <c>/</c>, cannot be the root path <c>"/"</c> and cannot contain route parameters or a
+    /// query string. A trailing <c>/</c> is ignored.
     /// </summary>
     public string Path { get; set; } = "/error";
 
@@ -41,9 +42,18 @@ public class InertiaErrorPageOptions
     public Func<HttpContext, bool> RequestPredicate { get; set; } = DefaultRequestPredicate;
 
     /// <summary>
-    /// Optionally configures the mapped error endpoint, for example
-    /// <c>endpoint => endpoint.AllowAnonymous()</c> when a fallback authorization policy would otherwise
-    /// apply to the error route.
+    /// Whether the error route is mapped with <c>AllowAnonymous()</c>. Defaults to true, so a fallback
+    /// authorization policy does not challenge the re-executed request: without it an anonymous user's 404 on a
+    /// public page would be redirected to sign in with the error route as the return URL. The page only exposes
+    /// the status, as Laravel renders its exception pages outside route middleware. Set to false to let
+    /// authorization apply to the error route, for example through <see cref="ConfigureEndpoint"/>.
+    /// </summary>
+    public bool AllowAnonymous { get; set; } = true;
+
+    /// <summary>
+    /// Optionally configures the mapped error endpoint, for example with rate limiting or other endpoint
+    /// conventions. It runs after <see cref="AllowAnonymous"/> is applied, so an authorization requirement added
+    /// here (<c>RequireAuthorization()</c>) only takes effect when <see cref="AllowAnonymous"/> is false.
     /// </summary>
     public Action<RouteHandlerBuilder>? ConfigureEndpoint { get; set; }
 
@@ -52,8 +62,11 @@ public class InertiaErrorPageOptions
     /// <list type="bullet">
     /// <item><see cref="InertiaOptions.RequestPredicate"/> excludes it;</item>
     /// <item>it is a Precognition request, whose client expects a Precognition response;</item>
-    /// <item>it is not an Inertia request and <see cref="InertiaChallengeOptions.DefaultApiRequestPredicate"/>
-    /// classifies it as an API request (it prefers JSON, or is a script <c>fetch()</c>).</item>
+    /// <item>it is not an Inertia request and the configured <see cref="InertiaChallengeOptions.ApiRequestPredicate"/>
+    /// classifies it as an API request. That is <see cref="InertiaChallengeOptions.DefaultApiRequestPredicate"/>
+    /// (it prefers JSON, or is a script <c>fetch()</c>) unless <c>AddInertiaChallengeHandling</c> or another
+    /// <see cref="InertiaChallengeOptions"/> configuration replaced it; when it is set to null, which only turns
+    /// off the challenge translation, the default predicate is used here.</item>
     /// </list>
     /// Browser navigations and Inertia visits to included paths are rendered.
     /// </summary>
@@ -66,7 +79,11 @@ public class InertiaErrorPageOptions
         if (predicate?.Invoke(context) == false) return false;
         if (PrecognitionValidation.IsPrecognitive(context.Request)) return false;
 
-        return context.Request.IsInertia() || !InertiaChallengeOptions.DefaultApiRequestPredicate(context);
+        if (context.Request.IsInertia()) return true;
+
+        var isApiRequest = context.RequestServices?.GetService<IOptions<InertiaChallengeOptions>>()?.Value.ApiRequestPredicate
+            ?? InertiaChallengeOptions.DefaultApiRequestPredicate;
+        return !isApiRequest(context);
     }
 
     internal void Validate()
@@ -77,6 +94,9 @@ public class InertiaErrorPageOptions
             throw new ArgumentException(
                 "The error page path must start with '/' and cannot contain route parameters, a query string or a fragment.",
                 nameof(Path));
+        // "/" would map /{status} and turn top-level URLs such as /404 into error pages.
+        if (Path.TrimEnd('/').Length == 0)
+            throw new ArgumentException("The error page path cannot be the root path.", nameof(Path));
         ArgumentNullException.ThrowIfNull(RequestPredicate, nameof(RequestPredicate));
     }
 }
