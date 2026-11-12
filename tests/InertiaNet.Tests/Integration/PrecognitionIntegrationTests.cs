@@ -150,6 +150,20 @@ public class PrecognitionIntegrationTests
         app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
     }
 
+    [Fact]
+    public async Task MinimalApiEndpointFilters_CanStillReadThe422()
+    {
+        await using var app = await App();
+        using var client = app.GetTestClient();
+        using var request = Request("minimal", new { email = "invalid", name = "" });
+        request.RequestUri = new Uri("/precognition-observed/minimal", UriKind.Relative);
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.Headers.GetValues("X-Observed-Result").Should().Equal("422 application/json; charset=utf-8 value");
+        app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
+    }
+
     private static HttpRequestMessage Request(string endpoint, object payload)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, $"/precognition/{endpoint}") { Content = JsonContent.Create(payload) };
@@ -172,6 +186,19 @@ public class PrecognitionIntegrationTests
         app.UseInertia();
         app.MapControllers();
         app.MapGroup("/precognition").WithInertiaPrecognition()
+            .MapPost("/minimal", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
+            { effects.Calls++; return Results.Ok(new { saved = true }); });
+        // An application filter outside the Precognition filter, inspecting the result it returns.
+        app.MapGroup("/precognition-observed")
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var result = await next(context);
+                if (result is IStatusCodeHttpResult { StatusCode: { } status } and IContentTypeHttpResult { ContentType: { } contentType })
+                    context.HttpContext.Response.Headers["X-Observed-Result"] =
+                        $"{status} {contentType} {(result is IValueHttpResult { Value: not null } ? "value" : "no-value")}";
+                return result;
+            })
+            .WithInertiaPrecognition()
             .MapPost("/minimal", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
             { effects.Calls++; return Results.Ok(new { saved = true }); });
         await app.StartAsync();

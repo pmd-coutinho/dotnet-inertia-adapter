@@ -33,4 +33,18 @@ public class PrecognitionErrorResultTests
         errors.GetProperty("first name")[0].GetString().Should().Be("Café <b>&</b>");
         errors.GetProperty("prices.EUR").GetArrayLength().Should().Be(0);
     }
+
+    [Fact]
+    public void Result_ShouldReportItsStatusContentTypeAndEnvelope_ToFilters()
+    {
+        var errors = new Dictionary<string, string[]> { ["email"] = ["Required"] };
+        var result = new PrecognitionErrorResult(errors);
+
+        ((IStatusCodeHttpResult)result).StatusCode.Should().Be(StatusCodes.Status422UnprocessableEntity);
+        ((Microsoft.AspNetCore.Mvc.Infrastructure.IStatusCodeActionResult)result).StatusCode
+            .Should().Be(StatusCodes.Status422UnprocessableEntity);
+        ((IContentTypeHttpResult)result).ContentType.Should().Be("application/json; charset=utf-8");
+        JsonSerializer.Serialize(((IValueHttpResult)result).Value)
+            .Should().Be("""{"message":"The given data was invalid.","errors":{"email":["Required"]}}""");
+    }
 }

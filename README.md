@@ -1067,7 +1067,11 @@ The 422 body has the shape Laravel sends, `{ "message": "The given data was inva
 body itself for MVC and Minimal APIs alike, so the application's MVC or Minimal API JSON options
 (`AddJsonOptions`, `ConfigureHttpJsonOptions`) rename neither `message`/`errors` nor the error keys, which
 already follow the [error key](#error-keys) rules. Being a fixed result rather than an
-`UnprocessableEntityObjectResult`, it also skips MVC output formatters and content negotiation.
+`UnprocessableEntityObjectResult`, it also skips MVC output formatters and content negotiation. MVC result
+filters can read its 422 through `IStatusCodeActionResult`, and Minimal API endpoint filters through
+`IStatusCodeHttpResult`, `IContentTypeHttpResult` and `IValueHttpResult`; it is no longer a
+`JsonHttpResult`. The Precognition client also requires the `Precognition: true` response header, which
+is set before the result runs.
 
 ```csharp
 [HttpPost]
