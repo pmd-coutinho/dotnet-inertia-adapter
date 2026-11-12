@@ -166,6 +166,7 @@ public class InertiaMiddleware
             && (context.Request.GetInertiaVersion() ?? "") != requestSettings.Version)
         {
             await OnVersionChange(context);
+            SkipStatusCodePagesForConflict(context);
             return;
         }
 
@@ -294,11 +295,19 @@ public class InertiaMiddleware
             if (location.Contains('#'))
             {
                 await OnRedirectWithFragment(context, location);
+                SkipStatusCodePagesForConflict(context);
             }
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // A 409 here is a protocol instruction to the client, not an error to replace with a status code page.
+    private static void SkipStatusCodePagesForConflict(HttpContext context)
+    {
+        if (context.Response.StatusCode == StatusCodes.Status409Conflict)
+            InertiaResponseHeaders.SkipStatusCodePages(context);
+    }
 
     private static bool IsRedirect(int statusCode) =>
         statusCode is StatusCodes.Status301MovedPermanently

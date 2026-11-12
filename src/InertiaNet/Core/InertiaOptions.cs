@@ -96,7 +96,9 @@ public class InertiaOptions
      /// <code>
      /// options.HandleExceptionsUsing = (exception, context) =>
      /// {
-     ///     return InertiaNet.Extensions.InertiaResults.Inertia("Errors/ServerError", new { message = exception.Message });
+     ///     return context.RequestServices.GetRequiredService&lt;IInertiaService&gt;()
+     ///         .Render("Errors/ServerError", new { message = exception.Message })
+     ///         .WithStatus(StatusCodes.Status500InternalServerError);
      /// };
      /// </code>
      /// </remarks>

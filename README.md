@@ -341,6 +341,7 @@ public class PostsController : Controller
 
 `ControllerBase.Inertia(...)` remains the primary MVC surface.
 If you need data for the root Razor view that should not be exposed to the frontend, use `WithViewData(...)` on the returned `InertiaResult`.
+Use `WithStatus(...)` to send a status other than 200; see [Error Handling](#error-handling).
 
 ### Typed page contracts
 
@@ -666,20 +667,78 @@ router.post('/users', data, { errorBag: 'createUser' });
 
 ## Error Handling
 
-Use `HandleExceptionsUsing` to render custom error pages for Inertia requests:
+### Status codes
+
+Inertia responses keep the status code already on the response, which is 200 unless something
+changed it. Use `WithStatus` to render a page with another status, for example an error page.
+It applies to the initial HTML response and to the JSON response for Inertia visits:
+
+```csharp
+// MVC
+return this.Inertia("Errors/Status", new { status = 404 }).WithStatus(StatusCodes.Status404NotFound);
+
+// Minimal API
+app.MapGet("/reports/{id}", (int id, IInertiaService inertia) =>
+    inertia.Render("Errors/Status", new { status = 403 }).WithStatus(StatusCodes.Status403Forbidden));
+```
+
+`WithStatus` accepts statuses that can carry a page: 2xx except 204 and 205, and 4xx/5xx.
+Redirects and 409 location/version responses are not pages, so keep using `Results.Redirect`,
+`inertia.Location(...)` and the middleware for those.
+
+The Inertia client renders any response that has the `X-Inertia` header as a page, whatever its
+status. For a status of 400 or above it first fires the cancelable `httpException` event and the
+visit's `onHttpException` callback. Returning `false` or calling `preventDefault()` there stops
+the page from rendering.
+
+### Application error pages
+
+ASP.NET Core's exception handler and status code pages can render an Inertia error page. Both
+re-execute the pipeline, so the Inertia middleware shares its props as usual. The page `url` is the
+URL of the original request, not the error route, so the browser address does not change.
+
+```csharp
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+    app.UseExceptionHandler("/error/500");
+app.UseStatusCodePagesWithReExecute("/error/{0}");
+
+app.UseInertia();
+app.MapControllers();
+
+// Map, not MapGet: re-execution keeps the original method, so a failed POST arrives as a POST.
+app.Map("/error/{status:int}", (int status, IInertiaService inertia) =>
+    inertia.Render("Errors/Status", new { status }).WithStatus(status));
+```
+
+Status code pages only replace empty 4xx/5xx responses. InertiaNet's own 409 responses (asset
+version conflicts, `Location` redirects and fragment redirects) opt out, so they still reach the
+client. Requests that should keep plain error responses, such as JSON APIs, can be excluded with
+`UseWhen`, or the error endpoint can check `context.Request.IsInertia()` and the `Accept` header.
+
+### Render failures
+
+Use `HandleExceptionsUsing` to render custom error pages when an exception occurs while an Inertia
+response is rendered (for example in a prop callback):
 
 ```csharp
 builder.Services.AddInertia(options =>
 {
     options.HandleExceptionsUsing = (exception, context) =>
-        InertiaResults.Inertia("Errors/ServerError", new
-        {
-            message = context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
-                ? exception.Message
-                : "Something went wrong.",
-        });
+        context.RequestServices.GetRequiredService<IInertiaService>()
+            .Render("Errors/ServerError", new
+            {
+                message = context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
+                    ? exception.Message
+                    : "Something went wrong.",
+            })
+            .WithStatus(StatusCodes.Status500InternalServerError);
 });
 ```
+
+Without `WithStatus` the handler's page keeps the status the response had before the failed render
+(normally 200).
 
 The handler may also return a normal ASP.NET Core result when that is more appropriate:
 
@@ -688,7 +747,8 @@ options.HandleExceptionsUsing = (exception, context) =>
     Results.StatusCode(StatusCodes.Status500InternalServerError);
 ```
 
-This hook runs for both MVC and Minimal API Inertia responses.
+This hook runs for both MVC and Minimal API Inertia responses. Exceptions thrown by the action or
+endpoint itself, before an Inertia result runs, are handled by the exception handler above.
 
 ---
 
@@ -897,7 +957,7 @@ redirect.AssertVersionRedirect().To("/stale-assets");
 
 Set the client's default `X-Inertia-Version` header when the tested application requires a known asset version. Reloads carry the asserted page's component and version and support `Only`, `Except`, `Reset`, and `ExceptOnceProps`. Deferred helpers send one partial request per selected group and return each server response; they do not simulate browser prop merging or once-prop expiry. Requests leave the client's default headers unchanged.
 
-`response.AssertInertiaAsync()` remains available for manually sent requests. Metadata assertions include `HasMergeProp`, `HasPrependProp`, `HasDeepMergeProp`, `HasMatchingProp`, `HasRescuedProp`, `HasOnceProp`, and `HasScrollProp`. The last two accept an optional complete expected metadata object, including explicit null fields. `HasNullProp` checks an explicit JSON null.
+`response.AssertInertiaAsync()` remains available for manually sent requests; it requires status 200. Pass the expected status, as in `response.AssertInertiaAsync(HttpStatusCode.NotFound)`, to assert an error page rendered with `WithStatus`. Metadata assertions include `HasMergeProp`, `HasPrependProp`, `HasDeepMergeProp`, `HasMatchingProp`, `HasRescuedProp`, `HasOnceProp`, and `HasScrollProp`. The last two accept an optional complete expected metadata object, including explicit null fields. `HasNullProp` checks an explicit JSON null.
 
 ### Development prop diagnostics
 

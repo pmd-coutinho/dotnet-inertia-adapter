@@ -1,6 +1,7 @@
 using InertiaNet.Resolution;
 using InertiaNet.Ssr;
 using InertiaNet.Support;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -26,6 +27,11 @@ namespace InertiaNet.Core;
 /// On subsequent Inertia requests (X-Inertia header present): returns the page object as JSON
 /// with the X-Inertia: true response header.
 /// </para>
+/// <para>
+/// Both responses keep the status code already on the response (200 unless application code,
+/// <c>UseExceptionHandler</c> or status-code-page re-execution changed it). Use
+/// <see cref="WithStatus(int)"/> to render a page such as a 404 or 500 error page with an explicit status.
+/// </para>
 /// </summary>
 public sealed class InertiaResult : IActionResult, IResult
 {
@@ -37,6 +43,9 @@ public sealed class InertiaResult : IActionResult, IResult
 
     // Additional view-only data (not sent to frontend)
     private readonly Dictionary<string, object?> _viewData = [];
+
+    // Explicit response status; null keeps the status already on the response
+    private int? _statusCode;
 
     internal InertiaResult(
         string component,
@@ -54,6 +63,28 @@ public sealed class InertiaResult : IActionResult, IResult
 
     /// <summary>Adds data that is available in the Razor view but NOT sent to the frontend.</summary>
     public InertiaResult WithViewData(string key, object? value) { _viewData[key] = value; return this; }
+
+    /// <summary>
+    /// Sets the HTTP status code for both the initial HTML response and the JSON response sent to
+    /// Inertia visits, e.g. <c>inertia.Render("Errors/Status", new { status = 404 }).WithStatus(404)</c>.
+    /// </summary>
+    /// <remarks>
+    /// The Inertia client renders any response carrying the <c>X-Inertia</c> header as a page. For a
+    /// status of 400 or above it first raises the cancelable <c>httpException</c> event and the
+    /// visit's <c>onHttpException</c> callback.
+    /// Without this call the status already on the response is kept.
+    /// </remarks>
+    /// <param name="statusCode">A status that can carry a page body: 2xx except 204 and 205, or 4xx/5xx.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The status is informational, a redirect, or bodiless.</exception>
+    public InertiaResult WithStatus(int statusCode)
+    {
+        if (!CanCarryPage(statusCode))
+            throw new ArgumentOutOfRangeException(nameof(statusCode), statusCode,
+                "An Inertia page requires a 2xx (except 204 and 205), 4xx or 5xx status code.");
+
+        _statusCode = statusCode;
+        return this;
+    }
 
     // ── IActionResult (MVC) ──────────────────────────────────────────────────
 
@@ -73,6 +104,7 @@ public sealed class InertiaResult : IActionResult, IResult
         var services = httpContext.RequestServices;
         var options = _options.Value;
         var requestSettings = InertiaRequestSettings.Resolve(httpContext, options);
+        var initialStatusCode = httpContext.Response.StatusCode;
 
         try
         {
@@ -146,6 +178,10 @@ public sealed class InertiaResult : IActionResult, IResult
             // Delegate to the configured exception handler; if it returns null, rethrow.
             httpContext.Items[InertiaContextKeys.ExceptionHandlerActiveKey] = true;
 
+            // Do not let this result's own status leak into the handler's response.
+            if (!httpContext.Response.HasStarted)
+                httpContext.Response.StatusCode = initialStatusCode;
+
             try
             {
                 var errorResult = options.HandleExceptionsUsing(ex, httpContext);
@@ -211,15 +247,32 @@ public sealed class InertiaResult : IActionResult, IResult
     private static string GetUrl(HttpContext httpContext)
     {
         var req = httpContext.Request;
+
+        // Error pages rendered by re-executing the pipeline describe the original request,
+        // so the client keeps the URL the user visited rather than the error route.
+        if (httpContext.Features.Get<IStatusCodeReExecuteFeature>() is { } statusCodeReExecute)
+            return statusCodeReExecute.OriginalPathBase + statusCodeReExecute.OriginalPath
+                + statusCodeReExecute.OriginalQueryString;
+
+        if (httpContext.Features.Get<IExceptionHandlerPathFeature>() is { Path: { Length: > 0 } originalPath })
+            return req.PathBase + originalPath + req.QueryString;
+
         return req.PathBase + req.Path + req.QueryString;
     }
+
+    private static bool CanCarryPage(int statusCode)
+        => statusCode is (>= 200 and < 300) and not (StatusCodes.Status204NoContent or StatusCodes.Status205ResetContent)
+            or (>= 400 and < 600);
 
     // ── JSON response (XHR Inertia request) ──────────────────────────────────
 
     private async Task WriteJsonResponseAsync(
         HttpContext httpContext, InertiaPage page, CancellationToken ct)
     {
-        httpContext.Response.StatusCode = StatusCodes.Status200OK;
+        // Keep a status set by the application or the error-handling middleware. Statuses that
+        // cannot carry a page body fall back to 200, the previous behaviour.
+        var statusCode = _statusCode ?? httpContext.Response.StatusCode;
+        httpContext.Response.StatusCode = CanCarryPage(statusCode) ? statusCode : StatusCodes.Status200OK;
         httpContext.Response.Headers[HeaderNames.Inertia] = "true";
         httpContext.Response.ContentType = "application/json";
 
@@ -261,6 +314,9 @@ public sealed class InertiaResult : IActionResult, IResult
         // Store in HttpContext.Items for tag helpers
         httpContext.Items[InertiaContextKeys.PageKey] = page;
         httpContext.Items[InertiaContextKeys.SsrResponseKey] = ssrResponse;
+
+        if (_statusCode is { } statusCode)
+            httpContext.Response.StatusCode = statusCode;
 
         if (actionContext is not null)
         {
