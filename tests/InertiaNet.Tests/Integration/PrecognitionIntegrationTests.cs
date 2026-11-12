@@ -156,7 +156,7 @@ public class PrecognitionIntegrationTests
         await using var app = await App();
         using var client = app.GetTestClient();
         using var request = Request("minimal", new { email = "invalid", name = "" });
-        request.RequestUri = new Uri("/precognition-observed/minimal", UriKind.Relative);
+        request.RequestUri = new Uri("/precognition-observed/observed", UriKind.Relative);
         using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
@@ -199,7 +199,7 @@ public class PrecognitionIntegrationTests
                 return result;
             })
             .WithInertiaPrecognition()
-            .MapPost("/minimal", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
+            .MapPost("/observed", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
             { effects.Calls++; return Results.Ok(new { saved = true }); });
         await app.StartAsync();
         return app;
