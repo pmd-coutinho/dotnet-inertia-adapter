@@ -6,16 +6,21 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
+using HttpHeaderNames = Microsoft.Net.Http.Headers.HeaderNames;
 
 namespace InertiaNet.Authentication;
 
 /// <summary>
 /// Decorates the application's <see cref="IAuthenticationService"/> so every scheme's challenge
-/// and forbid responses follow the Inertia protocol. The wrapped handler always runs first;
-/// only its redirect is translated afterwards, so scheme events and side effects are preserved.
+/// and forbid responses follow the Inertia protocol. The wrapped handler runs first and only its
+/// redirect is translated afterwards, so scheme events and side effects are preserved. Inertia
+/// prefetch challenges are the exception: they are answered without invoking the handler.
 /// </summary>
 internal sealed class InertiaAuthenticationService : IAuthenticationService
 {
+    private const string LocationVisitItemKey = "InertiaNet.Authentication.LocationVisit";
+
     private readonly IAuthenticationService _inner;
     private readonly IOptions<InertiaChallengeOptions> _options;
 
@@ -37,40 +42,64 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
     public async Task ChallengeAsync(HttpContext context, string? scheme, AuthenticationProperties? properties)
     {
         var kind = Classify(context);
+        var request = context.Request;
+        var response = context.Response;
+
+        // A prefetch must not start a sign-in flow: a remote handler would set correlation/nonce
+        // cookies for a callback that may never happen. If the prefetched response is used, the
+        // client reloads the page itself and that full-page request is challenged normally.
+        if (kind == RequestKind.Inertia && IsPrefetch(request))
+        {
+            if (!response.HasStarted)
+                SetLocationVisit(context, request.PathBase + request.Path + request.QueryString);
+            return;
+        }
 
         // Handlers return to the current URL by default, which a browser cannot revisit with GET
         // after a mutation. Mirror Laravel's Redirector::guest() and return to the previous page.
-        if (kind == RequestKind.Inertia && !IsSafeMethod(context.Request.Method)
+        if (kind == RequestKind.Inertia && !IsSafeMethod(request.Method)
             && string.IsNullOrEmpty(properties?.RedirectUri))
         {
             properties = properties?.Clone() ?? new AuthenticationProperties();
-            properties.RedirectUri = GetPreviousUrl(context.Request);
+            properties.RedirectUri = GetPreviousUrl(request);
         }
+
+        var cookies = response.HasStarted ? StringValues.Empty : response.Headers.SetCookie;
 
         await _inner.ChallengeAsync(context, scheme, properties);
 
-        var response = context.Response;
         if (kind == RequestKind.None || response.HasStarted) return;
 
         // Cookie authentication answers X-Requested-With requests with 401 + Location instead
         // of a 302; both shapes are a sign-in navigation.
-        if (!IsNavigation(response, StatusCodes.Status401Unauthorized)) return;
+        var isNavigation = IsNavigation(response, StatusCodes.Status401Unauthorized);
 
         if (kind == RequestKind.Inertia)
         {
             var location = response.Headers.Location.ToString();
-            if (location.Length == 0) return;
+            if (isNavigation && location.Length > 0)
+            {
+                SetLocationVisit(context, location);
+            }
+            else if (response.StatusCode == StatusCodes.Status401Unauthorized && location.Length == 0
+                && context.Items.ContainsKey(LocationVisitItemKey))
+            {
+                // A policy that lists several schemes challenges each in turn. Keep the location
+                // visit of an earlier scheme when a later one (e.g. bearer) only answers 401.
+                response.StatusCode = StatusCodes.Status409Conflict;
+            }
 
-            response.StatusCode = StatusCodes.Status409Conflict;
-            response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.Location);
-            response.Headers[HeaderNames.Location] = location;
-            InertiaResponseHeaders.AppendVary(response, HeaderNames.Inertia);
+            return;
         }
-        else
-        {
-            response.StatusCode = StatusCodes.Status401Unauthorized;
-            response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.Location);
-        }
+
+        if (!isNavigation) return;
+
+        response.StatusCode = StatusCodes.Status401Unauthorized;
+        response.Headers.Remove(HttpHeaderNames.Location);
+
+        // A remote handler's correlation and nonce cookies only validate the callback of the
+        // redirect it started. A 401 never leads to that callback, so drop them.
+        response.Headers.SetCookie = cookies;
     }
 
     public async Task ForbidAsync(HttpContext context, string? scheme, AuthenticationProperties? properties)
@@ -86,11 +115,21 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
         if (IsNavigation(response, StatusCodes.Status403Forbidden))
         {
             response.StatusCode = StatusCodes.Status403Forbidden;
-            response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.Location);
+            response.Headers.Remove(HttpHeaderNames.Location);
         }
 
         if (kind == RequestKind.Inertia)
             InertiaResponseHeaders.AppendVary(response, HeaderNames.Inertia);
+    }
+
+    private static void SetLocationVisit(HttpContext context, string location)
+    {
+        var response = context.Response;
+        response.StatusCode = StatusCodes.Status409Conflict;
+        response.Headers.Remove(HttpHeaderNames.Location);
+        response.Headers[HeaderNames.Location] = location;
+        InertiaResponseHeaders.AppendVary(response, HeaderNames.Inertia);
+        context.Items[LocationVisitItemKey] = true;
     }
 
     private RequestKind Classify(HttpContext context)
@@ -102,21 +141,16 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
         return _options.Value.ApiRequestPredicate?.Invoke(context) == true ? RequestKind.Api : RequestKind.None;
     }
 
+    // Remote handlers may redirect to this value after their callback without a local-URL check,
+    // so only a local or same-origin Referer that reduces to a local path is used.
     private static string GetPreviousUrl(HttpRequest request)
-    {
-        var referer = request.Headers.Referer.ToString();
-        if (referer.StartsWith('/') && !referer.StartsWith("//") && !referer.StartsWith("/\\"))
-            return referer;
+        => RefererUrl.TryGetLocal(request, includeFragment: false, out var referer)
+            ? referer
+            : request.PathBase.HasValue ? request.PathBase + "/" : "/";
 
-        // Remote handlers may redirect to this value after their callback without a local-URL
-        // check, so only a same-origin Referer is reduced to its path and query.
-        if (Uri.TryCreate(referer, UriKind.Absolute, out var uri)
-            && uri.Scheme.Equals(request.Scheme, StringComparison.OrdinalIgnoreCase)
-            && uri.Authority.Equals(request.Host.Value, StringComparison.OrdinalIgnoreCase))
-            return uri.PathAndQuery;
-
-        return request.PathBase.HasValue ? request.PathBase + "/" : "/";
-    }
+    private static bool IsPrefetch(HttpRequest request)
+        => HttpMethods.IsGet(request.Method)
+            && request.Headers[HeaderNames.Purpose].ToString().Equals("prefetch", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsNavigation(HttpResponse response, int xhrStatusCode)
         => IsRedirect(response.StatusCode)

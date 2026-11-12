@@ -1,4 +1,5 @@
 using InertiaNet.Core;
+using InertiaNet.Extensions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,8 @@ namespace InertiaNet.Authentication;
 /// </summary>
 public class InertiaChallengeOptions
 {
+    private const string SecFetchMode = "Sec-Fetch-Mode";
+
     /// <summary>
     /// Selects non-Inertia requests whose sign-in or access-denied redirects are replaced with
     /// a bare <c>401</c> (challenge) or <c>403</c> (forbid). Defaults to
@@ -21,11 +24,17 @@ public class InertiaChallengeOptions
     public Func<HttpContext, bool>? ApiRequestPredicate { get; set; } = DefaultApiRequestPredicate;
 
     /// <summary>
-    /// The default API-request heuristic. A request qualifies when it expects JSON (Laravel's
-    /// <c>expectsJson()</c>: the most preferred <c>Accept</c> type is JSON, or it is an
-    /// <c>X-Requested-With: XMLHttpRequest</c> request accepting any type), or when
-    /// <see cref="InertiaOptions.RequestPredicate"/> excludes it and its <c>Accept</c> header does
-    /// not list HTML. Browser navigations to excluded paths therefore keep their redirects.
+    /// The default API-request heuristic. A request qualifies when any of these holds:
+    /// <list type="bullet">
+    /// <item>it expects JSON (Laravel's <c>expectsJson()</c>: the most preferred <c>Accept</c> type
+    /// is JSON, or it is an <c>X-Requested-With: XMLHttpRequest</c> request accepting any type);</item>
+    /// <item>it is not an Inertia request and the browser marks it as a script request:
+    /// <c>Sec-Fetch-Mode</c> is present and is not <c>navigate</c> (for example a plain
+    /// <c>fetch()</c>). Browsers send this header only to secure origins and <c>localhost</c>;</item>
+    /// <item><see cref="InertiaOptions.RequestPredicate"/> excludes it and its <c>Accept</c> header
+    /// does not list HTML.</item>
+    /// </list>
+    /// Browser navigations, including those to excluded paths, therefore keep their redirects.
     /// </summary>
     /// <param name="context">The current request context.</param>
     public static bool DefaultApiRequestPredicate(HttpContext context)
@@ -46,6 +55,11 @@ public class InertiaChallengeOptions
             || preferred.Equals("*", StringComparison.Ordinal);
         var isAjax = string.Equals(request.Headers.XRequestedWith, "XMLHttpRequest", StringComparison.Ordinal);
         if (wantsJson || (isAjax && acceptsAnyType)) return true;
+
+        var fetchMode = request.Headers[SecFetchMode].ToString();
+        if (fetchMode.Length > 0 && !fetchMode.Equals("navigate", StringComparison.OrdinalIgnoreCase)
+            && !request.IsInertia())
+            return true;
 
         var predicate = context.RequestServices?.GetService<IOptions<InertiaOptions>>()?.Value.RequestPredicate;
         if (predicate?.Invoke(context) != false) return false;

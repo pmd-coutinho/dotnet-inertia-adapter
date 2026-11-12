@@ -15,8 +15,10 @@ public static class AuthenticationExtensions
     /// A sign-in redirect for an Inertia request becomes <c>409 Conflict</c> with
     /// <c>X-Inertia-Location</c>, so the client performs a full-page visit (required for
     /// cross-origin identity providers). Forbid redirects for Inertia requests become a bare
-    /// <c>403</c>. Requests selected by <see cref="InertiaChallengeOptions.ApiRequestPredicate"/>
-    /// receive <c>401</c>/<c>403</c> instead of redirects. Other requests are unchanged.
+    /// <c>403</c>. An Inertia prefetch is answered with a location visit to the prefetched URL
+    /// without starting a sign-in. Requests selected by
+    /// <see cref="InertiaChallengeOptions.ApiRequestPredicate"/> receive <c>401</c>/<c>403</c>
+    /// instead of redirects. Other requests are unchanged.
     /// </summary>
     /// <remarks>
     /// The registered <see cref="IAuthenticationService"/> is decorated, so this works for cookie,
