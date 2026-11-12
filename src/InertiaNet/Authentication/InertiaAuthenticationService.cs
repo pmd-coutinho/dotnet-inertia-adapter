@@ -47,12 +47,16 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
 
         // A prefetch must not start a sign-in flow: a remote handler would set correlation/nonce
         // cookies for a callback that may never happen. If the prefetched response is used, the
-        // client reloads the page itself and that full-page request is challenged normally.
+        // client reloads the page itself and that full-page request is challenged normally. A path
+        // such as //host/x would be a protocol-relative location, so it is challenged instead.
         if (kind == RequestKind.Inertia && IsPrefetch(request))
         {
-            if (!response.HasStarted)
-                SetLocationVisit(context, request.PathBase + request.Path + request.QueryString);
-            return;
+            var self = request.PathBase + request.Path + request.QueryString;
+            if (RefererUrl.IsLocalPath(self))
+            {
+                if (!response.HasStarted) SetLocationVisit(context, self);
+                return;
+            }
         }
 
         // Handlers return to the current URL by default, which a browser cannot revisit with GET

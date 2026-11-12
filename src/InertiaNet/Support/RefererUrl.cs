@@ -44,7 +44,12 @@ internal static class RefererUrl
         return false;
     }
 
-    private static bool IsLocalPath(string path)
+    /// <summary>
+    /// Returns true when <paramref name="path"/> is a local path in the sense of ASP.NET Core's
+    /// <c>IsLocalUrl</c>: a single leading <c>/</c> not followed by <c>/</c> or <c>\</c>, and no
+    /// control characters.
+    /// </summary>
+    public static bool IsLocalPath(string path)
     {
         if (path.Length == 0 || path[0] != '/') return false;
         if (path.Length == 1) return true;

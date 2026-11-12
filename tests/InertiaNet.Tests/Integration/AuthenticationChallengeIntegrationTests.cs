@@ -343,6 +343,18 @@ public class AuthenticationChallengeIntegrationTests
         response.Headers.Contains("Set-Cookie").Should().BeFalse();
     }
 
+    [Fact]
+    public async Task InertiaPrefetch_OfANonLocalPath_IsChallengedInsteadOfReloadingItself()
+    {
+        await using var app = await Fixture.Create();
+
+        using var request = Inertia(HttpMethod.Get, "http://localhost//evil.example/x");
+        request.Headers.Add(HeaderNames.Purpose, "prefetch");
+        using var response = await app.Send(request);
+
+        response.AssertInertiaRedirect().Location.Should().StartWith($"{Login}?ReturnUrl=");
+    }
+
     [Theory]
     [InlineData("/multi/cookie-first")]
     [InlineData("/multi/bearer-first")]
@@ -592,6 +604,7 @@ public class AuthenticationChallengeIntegrationTests
                 return Results.Challenge();
             });
             app.MapControllers();
+            app.MapFallback(() => Results.NotFound()).RequireAuthorization();
             app.MapPost("/explicit-challenge", () => Results.Challenge(new AuthenticationProperties { RedirectUri = "/custom" }));
             app.MapPost("/account/sign-in", async (HttpContext context, bool expired) =>
             {
