@@ -91,6 +91,7 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
                 // A policy that lists several schemes challenges each in turn. Keep the location
                 // visit of an earlier scheme when a later one (e.g. bearer) only answers 401.
                 response.StatusCode = StatusCodes.Status409Conflict;
+                InertiaResponseHeaders.SkipStatusCodePages(context);
             }
 
             return;
@@ -133,6 +134,8 @@ internal sealed class InertiaAuthenticationService : IAuthenticationService
         response.Headers.Remove(HttpHeaderNames.Location);
         response.Headers[HeaderNames.Location] = location;
         InertiaResponseHeaders.AppendVary(response, HeaderNames.Inertia);
+        // A protocol instruction to the client, not an error for status code pages to replace.
+        InertiaResponseHeaders.SkipStatusCodePages(context);
         context.Items[LocationVisitItemKey] = true;
     }
 

@@ -4,6 +4,10 @@ using InertiaNet.Core;
 using InertiaNet.Extensions;
 using InertiaNet.Support;
 using InertiaNet.Testing;
+using System.Security.Claims;
+using InertiaNet.Authentication;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -176,6 +180,51 @@ public class ErrorPagesIntegrationTests
 
         using var failed = await app.Client.SendAsync(Inertia(HttpMethod.Post, "/throws"));
         (await failed.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("ErrorPage").HasUrl("/throws");
+    }
+
+    [Fact]
+    public async Task ChallengeLocationVisits_ShouldNotBeReplaced_WhileForbiddenVisitsGetTheErrorPage()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        builder.WebHost.UseTestServer();
+        builder.Services.AddControllersWithViews();
+        builder.Services.Replace(ServiceDescriptor.Singleton<IActionResultExecutor<ViewResult>, StatusPreservingViewResultExecutor>());
+        builder.Services.AddInertia(options => options.RootView = "App");
+        builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie(options =>
+            {
+                options.LoginPath = "/account/login";
+                options.AccessDeniedPath = "/account/denied";
+            })
+            .AddInertiaChallengeHandling();
+        builder.Services.AddAuthorization(options => options.AddPolicy("Admin", policy => policy.RequireRole("admin")));
+        await using var app = builder.Build();
+        app.UseInertiaErrorPages();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.UseInertia();
+        app.MapGet("/protected", () => InertiaResults.Inertia("Dashboard")).RequireAuthorization();
+        app.MapGet("/admin", () => InertiaResults.Inertia("Admin")).RequireAuthorization("Admin");
+        app.MapPost("/sign-in", (HttpContext context) => context.SignInAsync(new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.Name, "alice")], CookieAuthenticationDefaults.AuthenticationScheme))));
+        await app.StartAsync();
+        var client = app.GetTestClient();
+
+        // Unauthenticated: the challenge becomes a 409 location visit, which status code pages must leave alone.
+        using var challenge = await client.SendAsync(Inertia(HttpMethod.Get, "/protected"));
+        challenge.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        challenge.Headers.GetValues(HeaderNames.Location).Should().ContainSingle()
+            .Which.Should().StartWith("http://localhost/account/login");
+        challenge.Headers.Contains(HeaderNames.Inertia).Should().BeFalse();
+        (await challenge.Content.ReadAsStringAsync()).Should().BeEmpty();
+
+        // Authenticated but not authorized: the forbid is a bare 403, which the helper renders as the error page.
+        using var signIn = await client.PostAsync("/sign-in", null);
+        using var forbidden = Inertia(HttpMethod.Get, "/admin");
+        forbidden.Headers.Add("Cookie", signIn.Headers.GetValues("Set-Cookie").Select(c => c.Split(';')[0]));
+        using var forbiddenResponse = await client.SendAsync(forbidden);
+        (await forbiddenResponse.AssertInertiaAsync(HttpStatusCode.Forbidden))
+            .HasComponent("ErrorPage").HasUrl("/admin").HasProp("status", 403);
     }
 
     // ── Excluded requests ────────────────────────────────────────────────────
