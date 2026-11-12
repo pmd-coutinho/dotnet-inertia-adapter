@@ -70,6 +70,51 @@ public class ValidationErrorKeysIntegrationTests
         (await Errors(client)).Keys.Should().Equal("address.post_code");
     }
 
+    [Theory]
+    [InlineData(ValidationErrorKeyFormat.Preserve, "Address.PostCode")]
+    [InlineData(ValidationErrorKeyFormat.Dots, "address.postCode")]
+    public async Task RedirectedErrorKeys_AreNotRenamedAgainByTheDictionaryKeyPolicy(ValidationErrorKeyFormat format, string expected)
+    {
+        await using var app = await App(options =>
+        {
+            options.ValidationErrorKeyFormat = format;
+            options.JsonSerializerOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
+            };
+        });
+        using var client = app.GetTestClient();
+
+        using var submit = await client.SendAsync(Request(HttpMethod.Post, "/validation-keys/minimal", new
+        {
+            name = "Ana",
+            address = new { street = "Main", postCode = "" },
+            lines = Array.Empty<object>(),
+        }));
+
+        (await Errors(client)).Keys.Should().Equal(expected);
+    }
+
+    [Fact]
+    public async Task ErrorBagName_IsNotRenamedByTheDictionaryKeyPolicy()
+    {
+        await using var app = await App(options => options.JsonSerializerOptions = new JsonSerializerOptions
+        {
+            DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+        using var client = app.GetTestClient();
+        using var request = Request(HttpMethod.Post, "/validation-keys/minimal", new { name = "", lines = Array.Empty<object>() });
+        request.Headers.Add(HeaderNames.ErrorBag, "createUser");
+
+        using var submit = await client.SendAsync(request);
+
+        using var page = await client.SendAsync(Request(HttpMethod.Get, "/validation-keys/form"));
+        using var doc = JsonDocument.Parse(await page.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("props").GetProperty("errors").GetProperty("createUser")
+            .EnumerateObject().Select(p => p.Name).Should().Contain("name");
+    }
+
     [Fact]
     public async Task JsonBindingErrors_DropTheJsonPathRoot()
     {

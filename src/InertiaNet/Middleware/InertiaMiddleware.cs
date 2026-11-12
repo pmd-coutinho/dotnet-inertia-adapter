@@ -204,7 +204,11 @@ public class InertiaMiddleware
                 var errors = DeserializeErrors(errorsStr, options.WithAllErrors);
 
                 if (errorBag is not null && errorBag.Length > 0)
-                    inertia.Share("errors", new AlwaysProp(new Dictionary<string, object?> { [errorBag] = errors }));
+                {
+                    var bags = new PropObjectDictionary();
+                    bags.Set(errorBag, errors, literal: true);
+                    inertia.Share("errors", new AlwaysProp(bags));
+                }
                 else
                     inertia.Share("errors", new AlwaysProp(errors));
 
@@ -338,9 +342,11 @@ public class InertiaMiddleware
         return result;
     }
 
-    private static Dictionary<string, object?> DeserializeErrors(string json, bool withAllErrors)
+    // Error keys were normalized when they were captured, so they are literal: the
+    // serializer's DictionaryKeyPolicy must not rename them a second time.
+    private static PropObjectDictionary DeserializeErrors(string json, bool withAllErrors)
     {
-        var result = new Dictionary<string, object?>();
+        var result = new PropObjectDictionary();
         try
         {
             using var doc = JsonDocument.Parse(json);
@@ -351,11 +357,11 @@ public class InertiaMiddleware
                     var messages = prop.Value.EnumerateArray()
                         .Select(e => e.GetString() ?? string.Empty)
                         .ToArray();
-                    result[prop.Name] = withAllErrors ? (object)messages : messages.FirstOrDefault() ?? string.Empty;
+                    result.Set(prop.Name, withAllErrors ? (object)messages : messages.FirstOrDefault() ?? string.Empty, literal: true);
                 }
                 else
                 {
-                    result[prop.Name] = prop.Value.GetString();
+                    result.Set(prop.Name, prop.Value.GetString(), literal: true);
                 }
             }
         }

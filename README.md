@@ -662,12 +662,14 @@ app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
 Every error-producing path (the MVC filter, all `SetInertiaValidationErrors` overloads and
 Precognition) normalizes keys the same way, one path segment at a time:
 
-- Member segments use the property naming policy of `InertiaOptions.JsonSerializerOptions`,
-  or camelCase when none is configured, so keys line up with the prop names the form was built from.
+- Member segments use the `PropertyNamingPolicy` of `InertiaOptions.JsonSerializerOptions`.
+  When that is not set (including custom options whose policy is `null`), camelCase is used,
+  as in earlier releases. `[JsonPropertyName]` overrides on input models are not consulted.
 - Numeric indexers are kept. Other indexers are dictionary keys and use the configured
   `DictionaryKeyPolicy` (none by default), matching how dictionary props are serialized.
 - The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed.
 - Keys that normalize to the same path have their messages merged.
+- Restored keys are written as-is: `DictionaryKeyPolicy` does not rename them, or the error-bag name, a second time.
 
 `ValidationErrorKeyFormat` chooses how indexers are written for errors forwarded across redirects:
 
