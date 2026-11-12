@@ -24,13 +24,9 @@ builder.Services.AddInertiaWithSsr<KitchenSinkMiddleware>(options =>
     options.HandleExceptionsUsing = (exception, context) =>
     {
         if (exception is not DemoRenderException) return null;
-        // The adapter's JSON writer sets 200. Apply the error status just before headers are sent.
-        context.Response.OnStarting(() =>
-        {
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-            return Task.CompletedTask;
-        });
-        return InertiaResults.Inertia("Error", new { message = "The demonstration error was handled by InertiaNet." });
+        return context.RequestServices.GetRequiredService<IInertiaService>()
+            .Render("Error", new { message = "The demonstration error was handled by InertiaNet." })
+            .WithStatus(StatusCodes.Status500InternalServerError);
     };
 });
 builder.Services.AddInertiaEventHandler<RenderObserver>();

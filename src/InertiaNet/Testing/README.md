@@ -10,13 +10,13 @@ Public helpers shipped with the runtime provide fluent page/redirect assertions 
 - Fluent assertions cover component, props, explicit null, counts, shared keys, URL/version, deferred groups, merge/prepend/deep-merge/matching/rescued paths, once/scroll metadata, flash, history flags, and exact large integers.
 - `InertiaReloadOptions` supplies `Only`, `Except`, `Reset`, and `ExceptOnceProps` lists.
 - `GetInertiaAsync`, `ReloadInertiaAsync`, and `LoadDeferredPropsAsync` extend `HttpClient`.
-- `AssertInertiaAsync`, `AssertInertiaRedirect`, `AssertFragmentRedirect`, and `AssertVersionRedirect` extend `HttpResponseMessage`.
+- `AssertInertiaAsync` (optionally with an expected status), `AssertInertiaRedirect`, `AssertFragmentRedirect`, and `AssertVersionRedirect` extend `HttpResponseMessage`.
 - `AssertableInertiaRedirect`, `AssertableInertiaFragmentRedirect`, and `AssertableInertiaVersionRedirect` expose captured destinations and `To(expected)` assertions.
 
 ## Invariants
 
 - Fluent mismatches throw `AssertionException`; successful checks return their wrapper.
-- `AssertInertiaAsync` requires status `200`, `X-Inertia: true`, JSON or `+json` content type, and a valid page containing component, props, and URL.
+- `AssertInertiaAsync` requires status `200` (or the expected status passed to its status overload), `X-Inertia: true`, JSON or `+json` content type, and a valid page containing component, props, and URL.
 - `HasProp`/`HasFlash` with a null expected argument check existence; `HasNullProp` explicitly checks JSON null. Supplied once/scroll expectations compare complete metadata shape.
 - Exact integer checks accept numeric and decimal-string transport and only unwrap `$bigint` markers when the page enables revival; they avoid floating-point conversion.
 - Redirect assertions require `409` and the appropriate location/redirect header.

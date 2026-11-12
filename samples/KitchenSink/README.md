@@ -132,9 +132,10 @@ implementation or a production identity system.
 - Uploaded files are read and discarded, never stored or served. The upload demo
   accepts up to 2 MB. Larger request bodies can be rejected with HTTP 413.
 - The intentional error demo throws during prop resolution. `HandleExceptionsUsing`
-  handles that render-phase failure; the sample uses `OnStarting` to retain HTTP
-  500 because the adapter's normal JSON writer selects 200. Controller exceptions
-  outside rendering still require ordinary ASP.NET Core exception handling.
+  handles that render-phase failure and renders the error page with
+  `WithStatus(500)`, so both full-page loads and Inertia visits return HTTP 500.
+  Controller exceptions outside rendering still require ordinary ASP.NET Core
+  exception handling.
 - History encryption needs HTTPS or a browser-trusted localhost context.
 - Generated contracts and browser/SSR output are ignored. `npm run build` restores
   and generates from source with Pathfinder strict mode before type-checking.

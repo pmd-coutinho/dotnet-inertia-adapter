@@ -73,9 +73,14 @@ public class InertiaMiddleware
     /// <c>X-Inertia-Location</c> header. This tells the client to perform a
     /// full-page reload to pick up the updated assets.
     /// </summary>
+    /// <remarks>
+    /// When the conflict is detected while <c>UseStatusCodePagesWithReExecute</c> or
+    /// <c>UseExceptionHandler</c> re-executes the pipeline on an error route, the location is the
+    /// URL of the original request, not the error route.
+    /// </remarks>
     protected virtual Task OnVersionChange(HttpContext context)
     {
-        var url = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
+        var url = InertiaRequestUrl.GetOriginalUrl(context);
         context.Response.StatusCode = StatusCodes.Status409Conflict;
         context.Response.Headers[HeaderNames.Location] = url;
         var version = InertiaRequestSettings.Resolve(context,
@@ -161,6 +166,7 @@ public class InertiaMiddleware
             && (context.Request.GetInertiaVersion() ?? "") != requestSettings.Version)
         {
             await OnVersionChange(context);
+            SkipStatusCodePagesForConflict(context);
             return;
         }
 
@@ -293,11 +299,19 @@ public class InertiaMiddleware
             if (location.Contains('#'))
             {
                 await OnRedirectWithFragment(context, location);
+                SkipStatusCodePagesForConflict(context);
             }
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // A 409 here is a protocol instruction to the client, not an error to replace with a status code page.
+    private static void SkipStatusCodePagesForConflict(HttpContext context)
+    {
+        if (context.Response.StatusCode == StatusCodes.Status409Conflict)
+            InertiaResponseHeaders.SkipStatusCodePages(context);
+    }
 
     private static bool IsRedirect(int statusCode) =>
         statusCode is StatusCodes.Status301MovedPermanently

@@ -160,6 +160,118 @@ public class InertiaResultTests
         (await context.ReadResponseBodyAsync()).Should().Be("Handled by MVC");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ShouldApplyExplicitStatus_WhenInertiaRequest()
+    {
+        var (result, context) = CreateInertiaResult(component: "Errors/Status");
+
+        await result.WithStatus(StatusCodes.Status404NotFound).ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+        context.Response.Headers[HeaderNames.Inertia].ToString().Should().Be("true");
+        context.Response.ContentType.Should().Be("application/json");
+        using var doc = JsonDocument.Parse(await context.ReadResponseBodyAsync());
+        doc.RootElement.GetProperty("component").GetString().Should().Be("Errors/Status");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldKeepStatusAlreadyOnResponse_WhenInertiaRequest()
+    {
+        var (result, context) = CreateInertiaResult(component: "Errors/Status");
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        await result.ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        context.Response.Headers[HeaderNames.Inertia].ToString().Should().Be("true");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldPreferExplicitStatusOverStatusAlreadyOnResponse()
+    {
+        var (result, context) = CreateInertiaResult(component: "Errors/Status");
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        await result.WithStatus(StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status204NoContent)]
+    [InlineData(StatusCodes.Status302Found)]
+    [InlineData(StatusCodes.Status304NotModified)]
+    public async Task ExecuteAsync_ShouldFallBackTo200_WhenStatusOnResponseCannotCarryAPage(int statusCode)
+    {
+        var (result, context) = CreateInertiaResult();
+        context.Response.StatusCode = statusCode;
+
+        await result.ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+        (await context.ReadResponseBodyAsync()).Should().NotBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(99)]
+    [InlineData(StatusCodes.Status100Continue)]
+    [InlineData(StatusCodes.Status204NoContent)]
+    [InlineData(StatusCodes.Status205ResetContent)]
+    [InlineData(StatusCodes.Status301MovedPermanently)]
+    [InlineData(StatusCodes.Status304NotModified)]
+    [InlineData(600)]
+    public void WithStatus_ShouldRejectStatusesThatCannotCarryAPage(int statusCode)
+    {
+        var (result, _) = CreateInertiaResult();
+
+        var act = () => result.WithStatus(statusCode);
+
+        act.Should().Throw<ArgumentOutOfRangeException>().Which.ParamName.Should().Be("statusCode");
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status200OK)]
+    [InlineData(StatusCodes.Status201Created)]
+    [InlineData(StatusCodes.Status403Forbidden)]
+    [InlineData(StatusCodes.Status409Conflict)]
+    [InlineData(419)]
+    [InlineData(StatusCodes.Status503ServiceUnavailable)]
+    public void WithStatus_ShouldAcceptStatusesThatCanCarryAPage(int statusCode)
+    {
+        var (result, _) = CreateInertiaResult();
+
+        result.WithStatus(statusCode).Should().BeSameAs(result);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldNotLeakExplicitStatusIntoCustomExceptionHandlerResult()
+    {
+        var (result, context) = CreateInertiaResult(
+            pageProps: new() { ["report"] = new UnserializableValue() },
+            configureOptions: options =>
+            {
+                options.HandleExceptionsUsing = (_, _) => InertiaResults.Inertia("Errors/ServerError");
+            });
+
+        await result.WithStatus(StatusCodes.Status404NotFound).ExecuteAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+        using var doc = JsonDocument.Parse(await context.ReadResponseBodyAsync());
+        doc.RootElement.GetProperty("component").GetString().Should().Be("Errors/ServerError");
+    }
+
+    [System.Text.Json.Serialization.JsonConverter(typeof(UnserializableValueConverter))]
+    private sealed class UnserializableValue;
+
+    private sealed class UnserializableValueConverter : System.Text.Json.Serialization.JsonConverter<UnserializableValue>
+    {
+        public override UnserializableValue Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => throw new NotSupportedException();
+
+        public override void Write(Utf8JsonWriter writer, UnserializableValue value, JsonSerializerOptions options)
+            => throw new InvalidOperationException("Cannot serialize.");
+    }
+
     private sealed class StaticResult(int statusCode, string body) : IResult
     {
         public async Task ExecuteAsync(HttpContext httpContext)
