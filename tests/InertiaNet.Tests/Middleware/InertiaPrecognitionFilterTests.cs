@@ -167,7 +167,29 @@ public class InertiaPrecognitionFilterTests
         ErrorKeys(context).Should().Equal("shipping_address.post_code");
     }
 
-    public static TheoryData<string> NamingConfigurations => ["default", "snake_case", "dictionary_policy"];
+    [Theory]
+    [InlineData(null, "Email", "ShippingAddress.PostCode", "Values.3.Code")]
+    [InlineData("ShippingAddress.PostCode", "ShippingAddress.PostCode")]
+    [InlineData("shippingAddress.postCode", "ShippingAddress.PostCode")]
+    [InlineData("values[3][code]", "Values.3.Code")]
+    public async Task OnActionExecutionAsync_ShouldNotRenameMembersWhenTheConfiguredPolicyIsNull(string? validateOnly, params string[] expected)
+    {
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Email", "Required");
+        modelState.AddModelError("ShippingAddress.PostCode", "Required");
+        modelState.AddModelError("Values[3].Code", "Invalid");
+        var headers = new Dictionary<string, string> { [HeaderNames.Precognition] = "true" };
+        if (validateOnly is not null) headers[HeaderNames.PrecognitionValidateOnly] = validateOnly;
+        var context = CreateActionContext(modelState, headers,
+            options => options.JsonSerializerOptions = new JsonSerializerOptions());
+
+        await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
+            throw new InvalidOperationException("Next should not be called"));
+
+        ErrorKeys(context).Should().BeEquivalentTo(expected);
+    }
+
+    public static TheoryData<string> NamingConfigurations => ["default", "null_policy", "snake_case", "dictionary_policy"];
 
     [Theory]
     [MemberData(nameof(NamingConfigurations))]
@@ -175,6 +197,7 @@ public class InertiaPrecognitionFilterTests
     {
         Action<InertiaOptions> configure = naming switch
         {
+            "null_policy" => options => options.JsonSerializerOptions = new JsonSerializerOptions(),
             "snake_case" => options => options.JsonSerializerOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower },
             "dictionary_policy" => options => options.JsonSerializerOptions = new JsonSerializerOptions
             {

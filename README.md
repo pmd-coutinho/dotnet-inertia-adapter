@@ -117,7 +117,7 @@ builder.Services.AddInertia(options =>
     options.RootView = "App";              // Razor view for initial HTML render
     options.EncryptHistory = false;        // Enable history encryption globally
     options.WithAllErrors = false;         // Return all validation errors per field
-    options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets; // "values[3].code"; Dots → "values.3.code"
+    options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots; // "values.3.code" (default); Brackets → "values[3].code"
     options.ExposeSharedPropKeys = true;   // Include sharedProps key list in responses
     options.PrefetchCacheMaxAge = 10;      // Default Cache-Control max-age for prefetch (seconds)
     options.Version = ManifestVersionStrategy.FromViteOrMix(webRootPath); // Asset versioning
@@ -128,6 +128,10 @@ builder.Services.AddInertia(options =>
     options.Pages.ManifestPaths = ["wwwroot/build/manifest.json"]; // build output (production)
 });
 ```
+
+> **Breaking change since 3.5.3:** validation error keys now follow the props naming policy per segment
+> (a `null` `PropertyNamingPolicy` renames nothing) and indexers default to dot paths (`values.3.code`).
+> See [Error Keys](#error-keys) for details and how to keep bracket indexers.
 
 ### SSR
 
@@ -777,15 +781,21 @@ app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
 Every error-producing path (the MVC filter, all `SetInertiaValidationErrors` overloads and
 Precognition) normalizes keys the same way, one path segment at a time:
 
-- Member segments use the `PropertyNamingPolicy` of `InertiaOptions.JsonSerializerOptions`.
-  When that is not set (including custom options whose policy is `null`), camelCase is used,
-  as in earlier releases. Props serialized with such custom options keep their CLR casing, so set
-  the policy explicitly if you rely on PascalCase props.
+- Member segments of ModelState and supplied keys use the same `PropertyNamingPolicy` that props are
+  serialized with, so a CLR member path names the field the page received. Without
+  `InertiaOptions.JsonSerializerOptions` that is InertiaNet's camelCase default (`Address.Street` becomes
+  `address.street`). With custom options, their policy is used, and a `null` policy renames nothing
+  (`Address.Street` stays `Address.Street`), exactly as props keep their CLR names. With a `null` policy,
+  System.Text.Json binding errors keep the names the client sent (`$.addresses[0].street` becomes
+  `addresses.0.street`), so send CLR-cased field names (`Addresses.0.Street`) if those errors should match
+  props and merge with DataAnnotations errors.
 - Numeric indexers are kept. Other indexers are dictionary keys and use the configured
   `DictionaryKeyPolicy` (none by default), matching how dictionary props are serialized.
 - The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed. Quoted
   indexers (`$['first name']`) are JSON property names and are written as plain segments without renaming.
-- Keys that normalize to the same path have their messages merged.
+- Keys that normalize to the same path have their messages merged. Under the default `Dots` format an
+  empty indexer is dropped (`Items[]` becomes `items` and merges with `Items` errors), and a dictionary key
+  containing `.` is split like a nested member (`Prices[EUR.USD]` becomes `prices.EUR.USD`).
 - Restored keys are written as-is: `DictionaryKeyPolicy` does not rename them, or the error-bag name, a second time.
 
 `[JsonPropertyName]` overrides on input models are not consulted. To make ModelState use JSON names in the
@@ -797,28 +807,66 @@ builder.Services.AddControllersWithViews(options =>
     options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider()));
 ```
 
-> **Behaviour change for Minimal APIs.** Earlier releases forwarded keys passed to the dictionary and
-> `ValidationProblemDetails` overloads of `SetInertiaValidationErrors` unchanged. They are now normalized like
-> ModelState keys, so `Address.Street` becomes `address.street`, but hand-written keys that are not CLR member
-> paths are renamed too (`SKU` becomes `sku`, `API_KEY` becomes `apI_KEY`). Set
-> `ValidationErrorKeyFormat.Preserve` to keep the previous verbatim forwarding.
+The provider defaults to camelCase, so when `InertiaOptions.JsonSerializerOptions` sets a different
+`PropertyNamingPolicy`, pass it the same policy
+(`new SystemTextJsonValidationMetadataProvider(JsonNamingPolicy.SnakeCaseLower)`). With a `null` policy, don't register it: it requires a non-null policy, and its camelCase default would
+give `email` errors for an `Email` prop.
+
+> **Breaking changes since 3.5.3.** In 3.5.3 the MVC filter camel-cased the whole ModelState key as one name
+> (`address.Street`, `values[3].Code`), `SetInertiaValidationErrors` forwarded keys unchanged, and Precognition
+> camel-cased every segment whatever policy was configured.
+>
+> - **Indexers are written as dot paths by default.** `ValidationErrorKeyFormat` defaults to `Dots`, so an
+>   indexed field reaches the page as `values.3.code` and a dictionary-keyed one as `prices.EUR`, after a
+>   redirect and in a Precognition response alike. This is the form Inertia's form types and Precognition
+>   use. If your client reads bracket keys such as `errors['values[3].code']`, switch it to dot paths or keep
+>   brackets (now with every segment renamed, `values[3].code`):
+>
+>   ```csharp
+>   builder.Services.AddInertia(options => options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets);
+>   ```
+>
+>   Empty indexers are dropped under `Dots` (`Items[]` becomes `items` instead of `items[]`, and merges with
+>   `Items` errors), and a dictionary key containing `.` becomes ambiguous (`Prices[EUR.USD]` gives
+>   `prices.EUR.USD` instead of `prices[EUR.USD]`).
+> - **Precognition dictionary-keyed errors use dot paths.** 3.5.3 rewrote only numeric indexers, so
+>   Precognition returned `prices[EUR]` and `prices[EurRate].amount`. It now returns `prices.EUR` and
+>   `prices.EurRate.amount`, with a configured `DictionaryKeyPolicy` applied to the dictionary key and the
+>   props policy to member segments.
+> - **Every segment follows the props naming policy.** Nested MVC keys change from `address.Street` to
+>   `address.street`. A configured policy now applies (`SnakeCaseLower` gives `first_name`). Custom
+>   `JsonSerializerOptions` with a `null` `PropertyNamingPolicy` rename nothing, as for props, so MVC and
+>   Precognition errors change from `email` to `Email`, matching an `Email` prop. To keep camelCase keys, set
+>   `PropertyNamingPolicy = JsonNamingPolicy.CamelCase` (which camel-cases props too) or leave
+>   `JsonSerializerOptions` unset. With a `null` policy, JSON binding errors keep the names the client sent,
+>   so send CLR-cased field names, and don't register `SystemTextJsonValidationMetadataProvider` (it requires
+>   a non-null policy and defaults to camelCase); when a policy is set, pass the provider the same one.
+>   Precognition 422 bodies are currently serialized with the application's MVC or Minimal API JSON options,
+>   so a `DictionaryKeyPolicy` configured there renames their keys again (`Email` becomes `email`).
+> - **Minimal API keys are normalized.** Keys passed to the dictionary and `ValidationProblemDetails`
+>   overloads of `SetInertiaValidationErrors` are normalized like ModelState keys, so `Address.Street` becomes
+>   `address.street`, but hand-written keys that are not CLR member paths are renamed too (`SKU` becomes `sku`,
+>   `API_KEY` becomes `apI_KEY`). System.Text.Json renames properties with those names the same way, so the
+>   keys still match props serialized with the same policy. Set `ValidationErrorKeyFormat.Preserve` to keep
+>   verbatim forwarding.
 
 `ValidationErrorKeyFormat` chooses how indexers are written for errors forwarded across redirects:
 
-| ModelState / supplied key | `Brackets` (default) | `Dots` | `Preserve` |
+| ModelState / supplied key | `Dots` (default) | `Brackets` | `Preserve` |
 | --- | --- | --- | --- |
 | `Email` | `email` | `email` | `Email` |
 | `Address.Street` | `address.street` | `address.street` | `Address.Street` |
-| `Values[3].Code` | `values[3].code` | `values.3.code` | `Values[3].Code` |
-| `Prices[EUR]` | `prices[EUR]` | `prices.EUR` | `Prices[EUR]` |
+| `Values[3].Code` | `values.3.code` | `values[3].code` | `Values[3].Code` |
+| `Prices[EUR]` | `prices.EUR` | `prices[EUR]` | `Prices[EUR]` |
 
-`Dots` matches Laravel and the dot paths that Inertia's `useForm` uses for nested fields
-(`form.errors['values.3.code']`), and is recommended for new applications. `Brackets` stays the
-default for compatibility with earlier releases. `Preserve` forwards keys exactly as supplied.
-Precognition responses always use dot paths, because the Precognition client sends and matches them.
-Under the `Brackets` default the same field is therefore `values.3.code` in a Precognition response and
-`values[3].code` after a redirect; use `Dots` so both paths agree. A `Precognition-Validate-Only` field selects
-its errors in either spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
+`Dots` matches Laravel and the dot paths that Inertia's form types build for nested fields
+(`form.errors['values.3.code']`). Precognition responses always use dot paths, because the Precognition
+client sends and matches them, so under the default a field has the same key in a Precognition response and
+after a redirect (unless the application's MVC or Minimal API JSON options set a `DictionaryKeyPolicy`, which
+renames the keys of Precognition 422 bodies). `Brackets` keeps ASP.NET's bracket indexers; with it, the same
+field is `values.3.code` in a Precognition response and `values[3].code` after a redirect.
+`Preserve` forwards keys exactly as supplied. A `Precognition-Validate-Only` field selects its errors in either
+spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
 
 ### Error Bags
 

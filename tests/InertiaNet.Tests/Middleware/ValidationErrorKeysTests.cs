@@ -99,14 +99,164 @@ public class ValidationErrorKeysTests
     }
 
     [Fact]
-    public void DefaultOptions_UseCamelCaseAndBrackets()
+    public void DefaultOptions_UseCamelCaseAndDots()
     {
-        var keys = ValidationErrorKeys.From((InertiaOptions?)null);
+        new InertiaOptions().ValidationErrorKeyFormat.Should().Be(ValidationErrorKeyFormat.Dots);
 
-        keys.Format.Should().Be(ValidationErrorKeyFormat.Brackets);
-        keys.Normalize("Values[3].Code").Should().Be("values[3].code");
-        ValidationErrorKeys.From(new InertiaOptions { JsonSerializerOptions = new JsonSerializerOptions() })
-            .Normalize("Address.Street").Should().Be("address.street");
+        foreach (var keys in new[] { ValidationErrorKeys.From((InertiaOptions?)null), ValidationErrorKeys.From(new InertiaOptions()) })
+        {
+            keys.Format.Should().Be(ValidationErrorKeyFormat.Dots);
+            keys.Normalize("Address.Street").Should().Be("address.street");
+            keys.Normalize("Values[3].Code").Should().Be("values.3.code");
+            keys.Normalize("Prices[EUR]").Should().Be("prices.EUR");
+        }
+    }
+
+    [Fact]
+    public void DefaultOptions_DropEmptyIndexersAndSplitDottedDictionaryKeys()
+    {
+        var keys = ValidationErrorKeys.From(new InertiaOptions());
+
+        // An empty indexer names no element, so its errors merge with those of the collection itself.
+        var errors = keys.Normalize(new Dictionary<string, string[]>
+        {
+            ["Items[]"] = ["Pick at least one."],
+            ["Items"] = ["Required"],
+        });
+        errors.Should().ContainSingle().Which.Key.Should().Be("items");
+        errors["items"].Should().Equal("Pick at least one.", "Required");
+
+        // A dictionary key containing '.' cannot be told apart from a nested member in dot form.
+        keys.Normalize("Prices[EUR.USD]").Should().Be("prices.EUR.USD");
+        keys.Normalize("Rates[EUR.usd]").Should().Be(keys.Normalize("Rates[EUR].Usd")).And.Be("rates.EUR.usd");
+    }
+
+    [Fact]
+    public void BracketsFormat_RemainsAvailableAsAnOptIn()
+        => ValidationErrorKeys.From(new InertiaOptions { ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets })
+            .Normalize("Values[3].Code").Should().Be("values[3].code");
+
+    public static TheoryData<string> SerializerOptionNames => ["default", "null-policy", "web", "snake-case"];
+
+    [Theory]
+    // No JsonSerializerOptions: the adapter's own camelCase defaults, as for props.
+    [InlineData("default", "shippingAddress.postCode", "lines.3.unitPrice")]
+    // Custom options without a property naming policy: props keep CLR names, so error keys do too.
+    [InlineData("null-policy", "ShippingAddress.PostCode", "Lines.3.UnitPrice")]
+    [InlineData("web", "shippingAddress.postCode", "lines.3.unitPrice")]
+    [InlineData("snake-case", "shipping_address.post_code", "lines.3.unit_price")]
+    public void MemberSegments_FollowThePropertyNamingPolicyPropsAreSerializedWith(string options, string nested, string indexed)
+    {
+        var keys = ValidationErrorKeys.From(new InertiaOptions
+        {
+            JsonSerializerOptions = SerializerOptions(options),
+            ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots,
+        });
+
+        keys.Normalize("ShippingAddress.PostCode").Should().Be(nested);
+        keys.Normalize("Lines[3].UnitPrice").Should().Be(indexed);
+    }
+
+    [Theory]
+    [InlineData("Address.Street", "Address.Street", "Address.Street")]
+    [InlineData("Values[3].Code", "Values[3].Code", "Values.3.Code")]
+    [InlineData("Prices[EUR]", "Prices[EUR]", "Prices.EUR")]
+    [InlineData("email", "email", "email")]
+    [InlineData("$.lines[0].quantity", "lines[0].quantity", "lines.0.quantity")]
+    public void NullPropertyNamingPolicy_StillNormalizesPathsWithoutRenamingMembers(string key, string brackets, string dots)
+    {
+        ValidationErrorKeys.From(new InertiaOptions
+        {
+            JsonSerializerOptions = new JsonSerializerOptions(),
+            ValidationErrorKeyFormat = ValidationErrorKeyFormat.Brackets,
+        }).Normalize(key).Should().Be(brackets);
+        ValidationErrorKeys.From(new InertiaOptions
+        {
+            JsonSerializerOptions = new JsonSerializerOptions(),
+            ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots,
+        }).Normalize(key).Should().Be(dots);
+    }
+
+    [Fact]
+    public void NullPropertyNamingPolicy_KeepsTheClientSpellingOfJsonPathKeys()
+    {
+        var keys = ValidationErrorKeys.From(new InertiaOptions { JsonSerializerOptions = new JsonSerializerOptions() });
+
+        // System.Text.Json reports binding errors with the property names the client sent, and with no
+        // policy there is nothing to rename them to, so they only match CLR-cased member paths when the
+        // client sends CLR-cased names.
+        keys.Normalize("$.addresses[0].street").Should().Be("addresses.0.street");
+        keys.Normalize("$.Addresses[0].Street").Should().Be("Addresses.0.Street");
+        keys.Normalize("Addresses[0].Street").Should().Be("Addresses.0.Street");
+    }
+
+    [Theory]
+    [MemberData(nameof(SerializerOptionNames))]
+    public void ErrorKeySegments_MatchTheSerializedPropNamesUnderTheSameOptions(string options)
+    {
+        var inertiaOptions = new InertiaOptions
+        {
+            JsonSerializerOptions = SerializerOptions(options),
+            ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots,
+        };
+        var json = JsonSerializer.SerializeToElement(new KeyProbe(), InertiaJsonOptions.GetOptions(inertiaOptions));
+        var keys = ValidationErrorKeys.From(inertiaOptions);
+
+        foreach (var key in new[] { "ShippingAddress.PostCode", "Lines[1].UnitPrice", "DisplayName" })
+        {
+            var node = json;
+            foreach (var segment in keys.Normalize(key).Split('.'))
+            {
+                if (node.ValueKind == JsonValueKind.Array)
+                {
+                    node = node[int.Parse(segment)];
+                    continue;
+                }
+                node.TryGetProperty(segment, out var child).Should().BeTrue(
+                    $"error key {keys.Normalize(key)} should name the serialized prop {json}");
+                node = child;
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(SerializerOptionNames))]
+    public void MatchSegments_OfANormalizedKeyEqualThoseOfItsSourceUnderEveryPolicy(string options)
+    {
+        var keys = ValidationErrorKeys.From(new InertiaOptions
+        {
+            JsonSerializerOptions = SerializerOptions(options),
+            ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots,
+        });
+
+        foreach (var key in new[] { "ShippingAddress.PostCode", "Prices[EurRate].Amount", "Lines[2].UnitPrice" })
+            keys.MatchSegments(keys.Normalize(key)).Should().Equal(keys.MatchSegments(key));
+    }
+
+    private static JsonSerializerOptions? SerializerOptions(string name) => name switch
+    {
+        "default" => null,
+        "null-policy" => new JsonSerializerOptions(),
+        "web" => new JsonSerializerOptions(JsonSerializerDefaults.Web),
+        "snake-case" => new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower },
+        _ => throw new ArgumentOutOfRangeException(nameof(name)),
+    };
+
+    private sealed class KeyProbe
+    {
+        public string DisplayName { get; set; } = "";
+        public KeyProbeAddress ShippingAddress { get; set; } = new();
+        public List<KeyProbeLine> Lines { get; set; } = [new(), new()];
+    }
+
+    private sealed class KeyProbeAddress
+    {
+        public string PostCode { get; set; } = "";
+    }
+
+    private sealed class KeyProbeLine
+    {
+        public decimal UnitPrice { get; set; }
     }
 
     [Fact]
