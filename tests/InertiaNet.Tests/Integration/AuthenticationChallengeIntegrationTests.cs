@@ -600,7 +600,7 @@ public class AuthenticationChallengeIntegrationTests
                 new AuthorizeAttribute { AuthenticationSchemes = $"{BearerLikeHandler.SchemeName},{CookieAuthenticationDefaults.AuthenticationScheme}" });
             app.MapGet("/api/cookie-then-challenge", (HttpContext context) =>
             {
-                context.Response.Cookies.Append("app", "1");
+                context.Response.Cookies.Append("app", "1", new CookieOptions { Secure = true });
                 return Results.Challenge();
             });
             app.MapControllers();
