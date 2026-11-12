@@ -24,13 +24,28 @@ public class InertiaChallengeOptions
     public Func<HttpContext, bool>? ApiRequestPredicate { get; set; } = DefaultApiRequestPredicate;
 
     /// <summary>
+    /// Whether <see cref="DefaultApiRequestPredicate"/> treats a non-Inertia request whose
+    /// <c>Sec-Fetch-Mode</c> header is present and is not <c>navigate</c> (any script or subresource
+    /// request such as a plain <c>fetch()</c>, not only <c>cors</c> mode) as an API request.
+    /// Defaults to <see langword="true"/>. Set to <see langword="false"/> to keep the sign-in
+    /// redirect for such requests (for example when a script fetches HTML pages or fragments and
+    /// relies on following the sign-in redirect) while keeping the default predicate's other
+    /// rules. A custom
+    /// <see cref="ApiRequestPredicate"/> that does not call <see cref="DefaultApiRequestPredicate"/>
+    /// ignores this option.
+    /// </summary>
+    public bool TreatFetchRequestsAsApi { get; set; } = true;
+
+    /// <summary>
     /// The default API-request heuristic. A request qualifies when any of these holds:
     /// <list type="bullet">
     /// <item>it expects JSON (Laravel's <c>expectsJson()</c>: the most preferred <c>Accept</c> type
     /// is JSON, or it is an <c>X-Requested-With: XMLHttpRequest</c> request accepting any type);</item>
     /// <item>it is not an Inertia request and the browser marks it as a script request:
     /// <c>Sec-Fetch-Mode</c> is present and is not <c>navigate</c> (for example a plain
-    /// <c>fetch()</c>). Browsers send this header only to secure origins and <c>localhost</c>;</item>
+    /// <c>fetch()</c>). Browsers send this header only to secure origins and <c>localhost</c>.
+    /// This rule applies unless <see cref="TreatFetchRequestsAsApi"/> is <see langword="false"/>
+    /// in the registered options;</item>
     /// <item><see cref="InertiaOptions.RequestPredicate"/> excludes it and its <c>Accept</c> header
     /// does not list HTML.</item>
     /// </list>
@@ -56,8 +71,11 @@ public class InertiaChallengeOptions
         var isAjax = string.Equals(request.Headers.XRequestedWith, "XMLHttpRequest", StringComparison.Ordinal);
         if (wantsJson || (isAjax && acceptsAnyType)) return true;
 
+        var treatFetchRequestsAsApi = context.RequestServices?.GetService<IOptions<InertiaChallengeOptions>>()
+            ?.Value.TreatFetchRequestsAsApi ?? true;
         var fetchMode = request.Headers[SecFetchMode].ToString();
-        if (fetchMode.Length > 0 && !fetchMode.Equals("navigate", StringComparison.OrdinalIgnoreCase)
+        if (treatFetchRequestsAsApi && fetchMode.Length > 0
+            && !fetchMode.Equals("navigate", StringComparison.OrdinalIgnoreCase)
             && !request.IsInertia())
             return true;
 

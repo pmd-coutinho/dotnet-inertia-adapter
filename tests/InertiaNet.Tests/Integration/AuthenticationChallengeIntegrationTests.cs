@@ -404,6 +404,68 @@ public class AuthenticationChallengeIntegrationTests
     }
 
     [Fact]
+    public void TreatFetchRequestsAsApi_IsOnByDefault()
+    {
+        new InertiaChallengeOptions().TreatFetchRequestsAsApi.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task FetchRequest_WithTreatFetchRequestsAsApiDisabled_KeepsTheLoginRedirect()
+    {
+        await using var app = await Fixture.Create(configure: options => options.TreatFetchRequestsAsApi = false);
+
+        using var fetch = new HttpRequestMessage(HttpMethod.Get, "/reports");
+        fetch.Headers.TryAddWithoutValidation("Accept", "*/*");
+        fetch.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var fetchResponse = await app.Send(fetch);
+
+        fetchResponse.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        fetchResponse.Headers.Location!.ToString().Should().Be($"{Login}?ReturnUrl=%2Freports");
+
+        // The default predicate's other rules still apply.
+        using var json = new HttpRequestMessage(HttpMethod.Get, "/reports");
+        json.Headers.TryAddWithoutValidation("Accept", "application/json");
+        json.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var jsonResponse = await app.Send(json);
+        jsonResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        using var excluded = new HttpRequestMessage(HttpMethod.Get, "/api/orders");
+        excluded.Headers.TryAddWithoutValidation("Accept", "*/*");
+        excluded.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var excludedResponse = await app.Send(excluded);
+        excludedResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        excludedResponse.Headers.Location.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false, "select", HttpStatusCode.Unauthorized)]
+    [InlineData(true, "reject", HttpStatusCode.Redirect)]
+    [InlineData(false, "compose", HttpStatusCode.Redirect)] // composing the default honours the option
+    [InlineData(true, "compose", HttpStatusCode.Unauthorized)]
+    public async Task CustomApiRequestPredicate_WinsOverTreatFetchRequestsAsApi(
+        bool treatFetchRequestsAsApi, string predicate, HttpStatusCode status)
+    {
+        await using var app = await Fixture.Create(configure: options =>
+        {
+            options.TreatFetchRequestsAsApi = treatFetchRequestsAsApi;
+            options.ApiRequestPredicate = predicate switch
+            {
+                "select" => context => context.Request.Headers.ContainsKey("Sec-Fetch-Mode"),
+                "reject" => _ => false,
+                _ => context => context.Request.Path.StartsWithSegments("/admin-json")
+                    || InertiaChallengeOptions.DefaultApiRequestPredicate(context),
+            };
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/reports");
+        request.Headers.TryAddWithoutValidation("Accept", "*/*");
+        request.Headers.Add("Sec-Fetch-Mode", "cors");
+        using var response = await app.Send(request);
+
+        response.StatusCode.Should().Be(status);
+    }
+
+    [Fact]
     public async Task InertiaVisit_ToAnExcludedPath_IsNotTranslated()
     {
         await using var app = await Fixture.Create();
@@ -412,7 +474,8 @@ public class AuthenticationChallengeIntegrationTests
         request.Headers.Add("Sec-Fetch-Mode", "cors");
         using var response = await app.Send(request);
 
-        // The cookie handler's own XHR answer, exactly as without challenge handling.
+        // Intended: an Inertia visit to an excluded (API) path is a client bug, so the cookie
+        // handler's own XHR answer is kept, exactly as without challenge handling.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         response.Headers.Location!.ToString().Should().Be($"{Login}?ReturnUrl=%2Fapi%2Forders");
         response.Headers.Contains(HeaderNames.Location).Should().BeFalse();
