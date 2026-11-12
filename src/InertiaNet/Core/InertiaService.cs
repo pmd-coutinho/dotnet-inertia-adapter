@@ -174,6 +174,7 @@ internal sealed class InertiaLocationResult : IResult
     {
         httpContext.Response.StatusCode = StatusCodes.Status409Conflict;
         httpContext.Response.Headers[HeaderNames.Location] = _url;
+        InertiaResponseHeaders.SkipStatusCodePages(httpContext);
         return Task.CompletedTask;
     }
 }

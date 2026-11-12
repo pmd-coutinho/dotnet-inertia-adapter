@@ -9,7 +9,7 @@ Shared constants, asset-version hashes, and response-header normalization suppor
 - `HeaderNames` centralizes Inertia, partial reload, reset, once, scroll, prefetch, redirect, error-bag, and Precognition header names.
 - `SessionKeys` defines `ClearHistory`, `FlashData`, `PreserveFragment`, `ValidationErrors`, and `ErrorBag` TempData keys.
 - `ManifestVersionStrategy.Hash(path)`, `HashString(value)`, and `FromViteOrMix(webRootPath)` provide version hashes/delegates.
-- Internal `InertiaResponseHeaders.AppendVary` appends response variation tokens.
+- Internal `InertiaResponseHeaders.AppendVary` appends response variation tokens; `SkipStatusCodePages` disables status code pages for bodiless protocol responses. Internal `InertiaRequestUrl.GetOriginalUrl` returns the original request URL during status-code-page or exception-handler re-execution.
 - Internal `RefererUrl.TryGetLocal` reduces a relative or same-origin `Referer` to a local redirect target.
 
 ## Invariants

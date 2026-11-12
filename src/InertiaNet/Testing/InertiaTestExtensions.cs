@@ -20,10 +20,19 @@ public static class InertiaTestExtensions
         => response.AssertInertiaAsync(CancellationToken.None);
 
     /// <summary>Asserts and parses an Inertia page, respecting cancellation while reading it.</summary>
-    public static async Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response, CancellationToken ct)
+    public static Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response, CancellationToken ct)
+        => response.AssertInertiaAsync(HttpStatusCode.OK, ct);
+
+    /// <summary>
+    /// Asserts the response is an Inertia JSON page with the given status, such as an error page
+    /// rendered with <see cref="InertiaResult.WithStatus(int)"/>, and returns it for fluent assertions.
+    /// </summary>
+    /// <exception cref="AssertionException">Thrown if the status differs or the response is not an Inertia JSON response.</exception>
+    public static async Task<AssertableInertiaPage> AssertInertiaAsync(this HttpResponseMessage response,
+        HttpStatusCode expectedStatus, CancellationToken ct = default)
     {
-        if (response.StatusCode != HttpStatusCode.OK)
-            throw new AssertionException($"Expected status 200, got {(int)response.StatusCode}.");
+        if (response.StatusCode != expectedStatus)
+            throw new AssertionException($"Expected status {(int)expectedStatus}, got {(int)response.StatusCode}.");
 
         if (!response.Headers.TryGetValues(HeaderNames.Inertia, out var inertiaHeader)
             || !string.Equals(inertiaHeader.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase))
