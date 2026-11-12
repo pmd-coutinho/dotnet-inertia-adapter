@@ -220,4 +220,57 @@ public class InertiaValidationEndpointFilterTests
             (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
         errors.Should().ContainSingle().Which.Value.Should().Equal("Email is required", "Email is invalid");
     }
+
+    public static TheoryData<string, bool> ErrorSourcesWithCustomOptions => new()
+    {
+        { "dictionary", false }, { "problem", false }, { "modelState", false },
+        { "dictionary", true }, { "problem", true }, { "modelState", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(ErrorSourcesWithCustomOptions))]
+    public async Task InvokeAsync_ShouldNotRenameMembersWhenTheConfiguredPolicyIsNull(string source, bool customOptions)
+    {
+        var tempDataFactory = new FakeTempDataFactory();
+        var context = HttpContextHelper.Create("POST", "/submit", configureServices: services =>
+        {
+            services.AddSingleton<ITempDataDictionaryFactory>(tempDataFactory);
+            services.Configure<InertiaOptions>(options =>
+            {
+                options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots;
+                if (customOptions) options.JsonSerializerOptions = new JsonSerializerOptions();
+            });
+        });
+        var raw = new Dictionary<string, string[]>
+        {
+            ["Email"] = ["Email is required"],
+            ["Address.Street"] = ["Street is required"],
+            ["Values[3].Code"] = ["Code is invalid"],
+        };
+        switch (source)
+        {
+            case "dictionary":
+                context.SetInertiaValidationErrors(raw);
+                break;
+            case "problem":
+                context.SetInertiaValidationErrors(new ValidationProblemDetails(raw));
+                break;
+            default:
+                var modelState = new ModelStateDictionary();
+                foreach (var (key, messages) in raw)
+                    foreach (var message in messages) modelState.AddModelError(key, message);
+                context.SetInertiaValidationErrors(modelState);
+                break;
+        }
+
+        await new InertiaValidationEndpointFilter().InvokeAsync(new DefaultEndpointFilterInvocationContext(context),
+            _ => ValueTask.FromResult<object?>(Results.Redirect("/create")));
+
+        var errors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
+            (string)tempDataFactory.TempData[SessionKeys.ValidationErrors]!)!;
+        errors.Keys.Should().BeEquivalentTo(customOptions
+            ? new[] { "Email", "Address.Street", "Values.3.Code" }
+            : new[] { "email", "address.street", "values.3.code" });
+    }
 }
+

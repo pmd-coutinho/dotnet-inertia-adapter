@@ -776,10 +776,11 @@ app.MapPost("/users", (HttpContext ctx, CreateUserRequest request) =>
 Every error-producing path (the MVC filter, all `SetInertiaValidationErrors` overloads and
 Precognition) normalizes keys the same way, one path segment at a time:
 
-- Member segments use the `PropertyNamingPolicy` of `InertiaOptions.JsonSerializerOptions`.
-  When that is not set (including custom options whose policy is `null`), camelCase is used,
-  as in earlier releases. Props serialized with such custom options keep their CLR casing, so set
-  the policy explicitly if you rely on PascalCase props.
+- Member segments use the same `PropertyNamingPolicy` that props are serialized with, so an error key
+  always names the field the page received. Without `InertiaOptions.JsonSerializerOptions` that is
+  InertiaNet's camelCase default (`Address.Street` becomes `address.street`). With custom options, their
+  policy is used, and a `null` policy renames nothing (`Address.Street` stays `Address.Street`), exactly
+  as props keep their CLR names.
 - Numeric indexers are kept. Other indexers are dictionary keys and use the configured
   `DictionaryKeyPolicy` (none by default), matching how dictionary props are serialized.
 - The `$` root of System.Text.Json binding errors (`$.lines[0].quantity`) is removed. Quoted
@@ -795,6 +796,13 @@ when normalized again:
 builder.Services.AddControllersWithViews(options =>
     options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider()));
 ```
+
+> **Behaviour change for custom options with a `null` naming policy.** Earlier releases camel-cased error
+> keys even when `InertiaOptions.JsonSerializerOptions` had no `PropertyNamingPolicy`, while props serialized
+> with those options kept their CLR names, so the page got an `Email` prop but an `email` error. Error keys now
+> follow the props: such apps get `Email` and `Address.Street`. To keep camelCase keys, set
+> `PropertyNamingPolicy = JsonNamingPolicy.CamelCase` (which camel-cases props too), or leave
+> `JsonSerializerOptions` unset.
 
 > **Behaviour change for Minimal APIs.** Earlier releases forwarded keys passed to the dictionary and
 > `ValidationProblemDetails` overloads of `SetInertiaValidationErrors` unchanged. They are now normalized like

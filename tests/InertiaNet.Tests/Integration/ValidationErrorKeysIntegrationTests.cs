@@ -96,11 +96,60 @@ public class ValidationErrorKeysIntegrationTests
         (await Errors(client)).Keys.Should().Equal(expected);
     }
 
+    public static TheoryData<string, string?> NamingPolicies => new()
+    {
+        { "mvc", null }, { "minimal", null },
+        { "mvc", "none" }, { "minimal", "none" },
+        { "mvc", "snake" }, { "minimal", "snake" },
+    };
+
+    [Theory]
+    [MemberData(nameof(NamingPolicies))]
+    public async Task RedirectedErrorKeys_NameTheSerializedPropsUnderTheSameOptions(string endpoint, string? policy)
+    {
+        await using var app = await App(options =>
+        {
+            options.ValidationErrorKeyFormat = ValidationErrorKeyFormat.Dots;
+            options.JsonSerializerOptions = policy switch
+            {
+                null => null,
+                "none" => new JsonSerializerOptions(),
+                _ => new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower },
+            };
+        });
+        using var client = app.GetTestClient();
+
+        using var submit = await client.SendAsync(Request(HttpMethod.Post, $"/validation-keys/{endpoint}", InvalidPayload));
+        submit.StatusCode.Should().Be(HttpStatusCode.SeeOther);
+
+        using var page = await client.SendAsync(Request(HttpMethod.Get, "/validation-keys/form"));
+        using var doc = JsonDocument.Parse(await page.Content.ReadAsStringAsync());
+        var props = doc.RootElement.GetProperty("props");
+        var keys = props.GetProperty("errors").EnumerateObject().Select(p => p.Name).ToList();
+        keys.Should().HaveCount(3);
+        if (policy == "none") keys.Should().BeEquivalentTo("Name", "Address.Street", "Lines.1.Quantity");
+        foreach (var key in keys)
+        {
+            var node = props.GetProperty("input");
+            foreach (var segment in key.Split('.'))
+            {
+                if (node.ValueKind == JsonValueKind.Array)
+                {
+                    node = node[int.Parse(segment)];
+                    continue;
+                }
+                node.TryGetProperty(segment, out var child).Should().BeTrue($"error key {key} should name a field of the input prop");
+                node = child;
+            }
+        }
+    }
+
     [Fact]
     public async Task ErrorBagName_IsNotRenamedByTheDictionaryKeyPolicy()
     {
         await using var app = await App(options => options.JsonSerializerOptions = new JsonSerializerOptions
         {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
         });
         using var client = app.GetTestClient();
@@ -207,7 +256,11 @@ public class ValidationErrorKeysIntegrationTests
         var app = builder.Build();
         app.UseInertia();
         app.MapControllers();
-        app.MapGet("/validation-keys/form", (IInertiaService inertia) => inertia.Render("Form", new { title = "Form" }));
+        app.MapGet("/validation-keys/form", (IInertiaService inertia) => inertia.Render("Form", new
+        {
+            title = "Form",
+            input = new ValidationKeysInput { Name = "", Address = new() { Street = "" }, Lines = [new(), new()] },
+        }));
         app.MapPost("/validation-keys/minimal", (HttpContext context, [FromBody] ValidationKeysInput input) =>
         {
             // The raw ASP.NET member paths a FluentValidation or DataAnnotations bridge would supply.

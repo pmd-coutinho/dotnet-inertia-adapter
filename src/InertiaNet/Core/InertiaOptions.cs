@@ -58,8 +58,10 @@ public class InertiaOptions
 
     /// <summary>
     /// How validation error keys forwarded across redirects are written. Member segments always use the
-    /// property naming policy of <see cref="JsonSerializerOptions"/> (camelCase when none is configured),
-    /// so <c>Address.Street</c> becomes <c>address.street</c>. <see cref="ValidationErrorKeyFormat.Brackets"/>
+    /// property naming policy props are serialized with: camelCase when <see cref="JsonSerializerOptions"/> is not
+    /// set, so <c>Address.Street</c> becomes <c>address.street</c>, otherwise its
+    /// <see cref="System.Text.Json.JsonSerializerOptions.PropertyNamingPolicy"/>, where <see langword="null"/>
+    /// keeps CLR member names (<c>Address.Street</c>) exactly as props are. <see cref="ValidationErrorKeyFormat.Brackets"/>
     /// (the default) keeps indexers as <c>values[3].code</c>; <see cref="ValidationErrorKeyFormat.Dots"/>
     /// writes <c>values.3.code</c>, the form used by Laravel and Inertia's <c>useForm</c>.
     /// Precognition responses always use dot paths, so under the <see cref="ValidationErrorKeyFormat.Brackets"/>

@@ -17,14 +17,18 @@ internal readonly record struct ValidationErrorKeys(
     ValidationErrorKeyFormat Format)
 {
     /// <summary>
-    /// Resolves key naming from the configured options. The member naming policy follows
-    /// <see cref="InertiaOptions.JsonSerializerOptions"/> and falls back to camelCase, the adapter's default
-    /// prop naming. Non-numeric indexers use the configured dictionary key policy (none by default).
+    /// Resolves key naming from the configured options, using the same serializer options props are written
+    /// with: <see cref="InertiaOptions.JsonSerializerOptions"/> when set, otherwise the adapter defaults
+    /// (camelCase members, no dictionary key policy). Custom options with a <see langword="null"/>
+    /// <see cref="JsonSerializerOptions.PropertyNamingPolicy"/> leave member segments unrenamed, as props are.
+    /// Non-numeric indexers use the dictionary key policy of the same options.
     /// </summary>
     public static ValidationErrorKeys From(InertiaOptions? options, ValidationErrorKeyFormat? format = null)
-        => new(options?.JsonSerializerOptions?.PropertyNamingPolicy ?? JsonNamingPolicy.CamelCase,
-            options?.JsonSerializerOptions?.DictionaryKeyPolicy,
+    {
+        var json = options?.JsonSerializerOptions ?? InertiaJsonOptions.Default;
+        return new(json.PropertyNamingPolicy, json.DictionaryKeyPolicy,
             format ?? options?.ValidationErrorKeyFormat ?? ValidationErrorKeyFormat.Brackets);
+    }
 
     public static ValidationErrorKeys From(HttpContext context, ValidationErrorKeyFormat? format = null)
         => From(context.RequestServices.GetService<IOptions<InertiaOptions>>()?.Value, format);
