@@ -314,6 +314,9 @@ app.MapGet("/", (IInertiaService inertia) => inertia.Render("Home"));
 // First-class Minimal API result helper
 app.MapGet("/dashboard", () => InertiaResults.Inertia("Dashboard", new { ready = true }));
 
+// Explicit status code, e.g. for an error page (see Error Handling)
+app.MapGet("/gone", () => InertiaResults.Inertia("Errors/Status", new { status = 410 }, StatusCodes.Status410Gone));
+
 // Request-aware props without resolving IInertiaService manually
 app.MapGet("/account", (HttpContext ctx) => InertiaResults.Inertia("Account", new
 {
@@ -721,8 +724,9 @@ path is a client bug, and translating it into a full-page reload would hide that
 **Forbidden visits.** A forbidden Inertia visit is answered with a bare `403` and is not
 redirected to the access-denied page, because that page is usually not an Inertia page. The
 client reports a non-Inertia error response through its `httpException` event. Without a handler,
-it shows the response body in a modal, which is blank unless the application writes a body (for
-example with `UseStatusCodePages()`). You can handle it on the client:
+it shows the response body in a modal, which is blank unless the application writes a body. With
+[`UseInertiaErrorPages()`](#application-error-pages) the `403` is rendered as the Inertia error page
+instead, so the client shows that page rather than a modal. You can also handle it on the client:
 
 ```javascript
 router.on('httpException', (event) => {
@@ -861,8 +865,6 @@ give `email` errors for an `Email` prop.
 >   `JsonSerializerOptions` unset. With a `null` policy, JSON binding errors keep the names the client sent,
 >   so send CLR-cased field names, and don't register `SystemTextJsonValidationMetadataProvider` (it requires
 >   a non-null policy and defaults to camelCase); when a policy is set, pass the provider the same one.
->   Precognition 422 bodies are currently serialized with the application's MVC or Minimal API JSON options,
->   so a `DictionaryKeyPolicy` configured there renames their keys again (`Email` becomes `email`).
 > - **Minimal API keys are normalized.** Keys passed to the dictionary and `ValidationProblemDetails`
 >   overloads of `SetInertiaValidationErrors` are normalized like ModelState keys, so `Address.Street` becomes
 >   `address.street`, but hand-written keys that are not CLR member paths are renamed too (`SKU` becomes `sku`,
@@ -882,8 +884,7 @@ give `email` errors for an `Email` prop.
 `Dots` matches Laravel and the dot paths that Inertia's form types build for nested fields
 (`form.errors['values.3.code']`). Precognition responses always use dot paths, because the Precognition
 client sends and matches them, so under the default a field has the same key in a Precognition response and
-after a redirect (unless the application's MVC or Minimal API JSON options set a `DictionaryKeyPolicy`, which
-renames the keys of Precognition 422 bodies). `Brackets` keeps ASP.NET's bracket indexers; with it, the same
+after a redirect. `Brackets` keeps ASP.NET's bracket indexers; with it, the same
 field is `values.3.code` in a Precognition response and `values[3].code` after a redirect.
 `Preserve` forwards keys exactly as supplied. A `Precognition-Validate-Only` field selects its errors in either
 spelling and in any casing (`prices.EUR`, `Prices[EUR]`).
@@ -911,9 +912,14 @@ return this.Inertia("Errors/Status", new { status = 404 }).WithStatus(StatusCode
 // Minimal API
 app.MapGet("/reports/{id}", (int id, IInertiaService inertia) =>
     inertia.Render("Errors/Status", new { status = 403 }).WithStatus(StatusCodes.Status403Forbidden));
+
+// Minimal API result helper: every InertiaResults.Inertia overload has a statusCode variant
+app.MapGet("/archive/{id}", (int id) =>
+    InertiaResults.Inertia("Errors/Status", new { status = 410 }, StatusCodes.Status410Gone));
 ```
 
-`WithStatus` accepts statuses that can carry a page: 2xx except 204 and 205, and 4xx/5xx.
+`WithStatus` and the `statusCode` overloads accept statuses that can carry a page: 2xx except 204 and
+205, and 4xx/5xx. The overloads throw `ArgumentOutOfRangeException` when the result is created.
 Redirects and 409 location/version responses are not pages, so keep using `Results.Redirect`,
 `inertia.Location(...)` and the middleware for those.
 
@@ -930,10 +936,72 @@ form.reset() })` therefore also runs after a 500 page. Check `page.component` th
 
 ### Application error pages
 
-ASP.NET Core's exception handler and status code pages can render an Inertia error page. Both
-re-execute the pipeline on the error route. The page `url`, and the `X-Inertia-Location` of an asset
-version conflict detected on the error route, is the URL of the original request, not the error
-route, so the browser address does not change.
+`UseInertiaErrorPages()` renders ASP.NET Core's error responses as an Inertia page. It is opt-in and
+packages ASP.NET Core's exception handler and status code pages with an error route:
+
+```csharp
+var app = builder.Build();
+
+app.UseInertiaErrorPages(); // before UseInertia
+app.UseInertia();
+app.MapControllers();
+```
+
+- **Status code pages.** Empty 4xx/5xx responses (an unmatched route, `Results.NotFound()`, a 403 from
+  authorization) re-execute the pipeline on `/error/{status}`.
+- **Exceptions.** Unhandled exceptions re-execute it on `/error/500`. This is off in the Development
+  environment by default, so the developer exception page keeps showing exception details there.
+- **The error route.** `/error/{status:int:range(400,599)}` is mapped for every method, because
+  re-execution keeps the original method and a failed POST arrives as a POST. It renders the `ErrorPage`
+  component with a `status` prop and that status, on the initial HTML response and on the JSON response
+  for Inertia visits. Statuses outside the range (`/error/302`) get the 404 page instead of failing in
+  `WithStatus`.
+- **Plain error responses stay plain.** JSON API requests, Precognition requests and paths excluded by
+  `InertiaOptions.RequestPredicate` keep ASP.NET Core's responses. API requests are classified by the
+  configured `InertiaChallengeOptions.ApiRequestPredicate`, which is
+  `InertiaChallengeOptions.DefaultApiRequestPredicate` (they prefer JSON or are a script `fetch()`) unless
+  you replaced it, for example in `AddInertiaChallengeHandling`; setting it to null there only turns off
+  the challenge translation, and error pages then keep using the default. The check runs on the original
+  request, not on the error route.
+- **Anonymous access.** The error route allows anonymous users, so a fallback authorization policy does
+  not send an anonymous user's 404 on a public page to the sign-in page with `/error/404` as the return
+  URL. The page only exposes the status, as Laravel renders its exception pages outside route middleware.
+
+Everything is configurable:
+
+```csharp
+app.UseInertiaErrorPages(options =>
+{
+    options.Component = "Errors/Status";      // default "ErrorPage", as in the Inertia docs
+    options.Path = "/errors";                 // default "/error": /errors/{status}, /errors/500
+    options.HandleExceptions = true;          // default: false in Development, true elsewhere
+    options.AllowAnonymous = true;            // default true: the error route skips authorization
+    options.RequestPredicate = context =>     // default InertiaErrorPageOptions.DefaultRequestPredicate
+        InertiaErrorPageOptions.DefaultRequestPredicate(context)
+        && !context.Request.Path.StartsWithSegments("/webhooks");
+});
+```
+
+The page component receives the status and can choose its own text:
+
+```vue
+<script setup>
+defineProps({ status: Number })
+</script>
+```
+
+Call it once, before `UseInertia()` (and before `UseAuthentication()`/`UseAuthorization()` if those
+errors should be rendered too); a second call throws `InvalidOperationException`. An explicit
+`UseRouting()` may come before or after it. `Path` cannot be `/`, which would turn top-level URLs such as
+`/404` into error pages. The helper is an extension of `WebApplication`; an app built with
+`Startup`/`IApplicationBuilder` can use the hand-written pattern below. `ConfigureEndpoint` receives the
+error endpoint for rate limiting or other endpoint conventions. It runs after `AllowAnonymous`, so an
+authorization requirement added there (`endpoint.RequireAuthorization("Staff")`) only applies when you also
+set `options.AllowAnonymous = false`. Pathfinder cannot see the component the helper renders, so declare
+its `status` prop on the client yourself.
+
+The page `url`, and the `X-Inertia-Location` of an asset version conflict detected on the error route, is
+the URL of the original request, not the error route, so the browser address does not change.
 
 On re-execution the Inertia middleware runs again only when `UseInertia` comes after the error
 middlewares and `RequestPredicate` matches the error path. It then calls `Share` again and shares
@@ -943,9 +1011,19 @@ while flash data is kept. Laravel's exception
 responses leave shared data out by default, so keep error pages independent of shared props where
 you can.
 
-```csharp
-var app = builder.Build();
+Status code pages only replace empty 4xx/5xx responses, so an error response that already has a body,
+such as the ProblemDetails body an `[ApiController]` action writes for `NotFound()`, is left alone.
+InertiaNet's own 409 responses (asset version conflicts, `Location` redirects, fragment redirects and
+the sign-in location visits of [challenge handling](#authentication)) opt out, so they still reach the
+client.
 
+The helper is built on this hand-written pattern, which you can use instead when you need more control,
+such as per-status props, or when the app does not use `WebApplication`. The sketch is not equivalent: it
+has no request selection (JSON API, Precognition and excluded-path requests get the error page too), no
+`AllowAnonymous`, no `HandleExceptions` option and no guard against a second registration, and it renders
+an `Errors/Status` component rather than `ErrorPage`:
+
+```csharp
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/error/500");
 app.UseStatusCodePagesWithReExecute("/error/{0}");
@@ -960,10 +1038,11 @@ app.Map("/error/{status:int:range(400,599)}", (int status, IInertiaService inert
     inertia.Render("Errors/Status", new { status }).WithStatus(status));
 ```
 
-Status code pages only replace empty 4xx/5xx responses. InertiaNet's own 409 responses (asset
-version conflicts, `Location` redirects and fragment redirects) opt out, so they still reach the
-client. Requests that should keep plain error responses, such as JSON APIs, can be excluded with
-`UseWhen`, or the error endpoint can check `context.Request.IsInertia()` and the `Accept` header.
+When writing it by hand, exclude JSON APIs in the error endpoint (check `context.Request.IsInertia()`
+and the `Accept` header) rather than wrapping the error middlewares in `UseWhen`. On `WebApplication`,
+when routing runs before the branch (the default: implicit routing, or an explicit `UseRouting()` before
+it), a `UseWhen` branch loses the global route builder, so the re-executed request no longer reaches the
+error route and every error becomes an empty 404 or the original exception.
 
 ### Render failures
 
@@ -980,13 +1059,26 @@ builder.Services.AddInertia(options =>
                 message = context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
                     ? exception.Message
                     : "Something went wrong.",
-            })
-            .WithStatus(StatusCodes.Status500InternalServerError);
+            });
 });
 ```
 
-Without `WithStatus` the handler's page keeps the status the response had before the failed render
-(normally 200).
+An Inertia page returned by the handler is sent with status 500, on the initial HTML response and on the
+JSON response for Inertia visits, as Laravel's exception responses carry the real status. Call
+`WithStatus` to send another status, for example `.WithStatus(StatusCodes.Status503ServiceUnavailable)`
+for a maintenance page; an explicit status always wins. A status the handler assigns itself, as in
+`context.Response.StatusCode = 404` before returning the page, is also kept. InertiaNet detects it by
+comparing with the status the response had when the handler was called (normally what it had before the
+failed render), so assigning that same status is not detected and the page is still sent with 500; use
+`WithStatus` for that case. Other results returned by the handler set their own status.
+
+> **Behaviour change.** Before this release a handler page without `WithStatus` kept the status the
+> response had before the failed render, normally 200. It is now 500, so the client raises its
+> `httpException` event and `onHttpException` callback for it (see [Status codes](#status-codes)). Add
+> `.WithStatus(StatusCodes.Status200OK)` to keep the old status, for example in a handler that re-renders
+> the page without SSR (`inertia.WithoutSsr()`) after an SSR failure and should still count as a success.
+> This includes a page rendered during status code re-execution: if the 404 page's own render fails and
+> the handler returns a page, that page now reports 500, not 404.
 
 The handler may also return a normal ASP.NET Core result when that is more appropriate:
 
@@ -1006,6 +1098,17 @@ Precognition lets the frontend validate form data against server-side rules in r
 
 - **Valid** → 204 No Content + `Precognition: true` and `Precognition-Success: true`
 - **Invalid** → 422 Unprocessable Entity + `Precognition: true`, with `{ message, errors }` JSON
+
+The 422 body has the shape Laravel sends, `{ "message": "The given data was invalid.", "errors": { "email":
+["..."] } }`, with `application/json`; the Precognition client reads `errors` from it. InertiaNet writes this
+body itself for MVC and Minimal APIs alike, so the application's MVC or Minimal API JSON options
+(`AddJsonOptions`, `ConfigureHttpJsonOptions`) rename neither `message`/`errors` nor the error keys, which
+already follow the [error key](#error-keys) rules. Being a fixed result rather than an
+`UnprocessableEntityObjectResult`, it also skips MVC output formatters and content negotiation. MVC result
+filters can read its 422 through `IStatusCodeActionResult`, and Minimal API endpoint filters through
+`IStatusCodeHttpResult`, `IContentTypeHttpResult` and `IValueHttpResult`; it is no longer a
+`JsonHttpResult`. The Precognition client also requires the `Precognition: true` response header, which
+is set before the result runs.
 
 ```csharp
 [HttpPost]

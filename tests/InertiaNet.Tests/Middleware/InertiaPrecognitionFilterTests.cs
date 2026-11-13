@@ -68,7 +68,12 @@ public class InertiaPrecognitionFilterTests
         await filter.OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        context.Result.Should().BeOfType<UnprocessableEntityObjectResult>();
+        context.Result.Should().BeOfType<PrecognitionErrorResult>();
+        await context.Result!.ExecuteResultAsync(context);
+        context.HttpContext.Response.StatusCode.Should().Be(StatusCodes.Status422UnprocessableEntity);
+        context.HttpContext.Response.ContentType.Should().Be("application/json; charset=utf-8");
+        (await context.HttpContext.ReadResponseBodyAsync()).Should()
+            .Be("{\"message\":\"The given data was invalid.\",\"errors\":{\"email\":[\"Required\"]}}");
     }
 
     [Fact]
@@ -121,7 +126,7 @@ public class InertiaPrecognitionFilterTests
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        ErrorKeys(context).Should().BeEquivalentTo("email", "address.street", "values.3.code", "prices.EUR", "name");
+        (await ErrorKeys(context)).Should().BeEquivalentTo("email", "address.street", "values.3.code", "prices.EUR", "name");
     }
 
     [Theory]
@@ -143,7 +148,7 @@ public class InertiaPrecognitionFilterTests
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        ErrorKeys(context).Should().Equal(expected);
+        (await ErrorKeys(context)).Should().Equal(expected);
     }
 
     [Fact]
@@ -164,7 +169,7 @@ public class InertiaPrecognitionFilterTests
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        ErrorKeys(context).Should().Equal("shipping_address.post_code");
+        (await ErrorKeys(context)).Should().Equal("shipping_address.post_code");
     }
 
     [Theory]
@@ -186,7 +191,7 @@ public class InertiaPrecognitionFilterTests
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        ErrorKeys(context).Should().BeEquivalentTo(expected);
+        (await ErrorKeys(context)).Should().BeEquivalentTo(expected);
     }
 
     public static TheoryData<string> NamingConfigurations => ["default", "null_policy", "snake_case", "dictionary_policy"];
@@ -217,7 +222,7 @@ public class InertiaPrecognitionFilterTests
         var all = CreateActionContext(ModelState(), new() { [HeaderNames.Precognition] = "true" }, configure);
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(all, () =>
             throw new InvalidOperationException("Next should not be called"));
-        var returned = ErrorKeys(all).ToList();
+        var returned = (await ErrorKeys(all)).ToList();
         returned.Should().HaveCount(8);
 
         foreach (var key in returned)
@@ -231,7 +236,7 @@ public class InertiaPrecognitionFilterTests
             await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
                 throw new InvalidOperationException("Next should not be called"));
 
-            ErrorKeys(context).Should().Contain(key, "sending back '{0}' must not report the field as valid", key);
+            (await ErrorKeys(context)).Should().Contain(key, "sending back '{0}' must not report the field as valid", key);
         }
     }
 
@@ -254,7 +259,7 @@ public class InertiaPrecognitionFilterTests
         await new InertiaPrecognitionFilter().OnActionExecutionAsync(context, () =>
             throw new InvalidOperationException("Next should not be called"));
 
-        ErrorKeys(context).Should().Equal(expected);
+        (await ErrorKeys(context)).Should().Equal(expected);
     }
 
     [Theory]
@@ -278,10 +283,11 @@ public class InertiaPrecognitionFilterTests
         context.HttpContext.Response.Headers[HeaderNames.PrecognitionSuccess].ToString().Should().Be("true");
     }
 
-    private static IEnumerable<string> ErrorKeys(ActionExecutingContext context)
+    // Reads the keys from the written body, not the result object, so the test sees what the client receives.
+    private static async Task<IEnumerable<string>> ErrorKeys(ActionExecutingContext context)
     {
-        var value = context.Result.Should().BeOfType<UnprocessableEntityObjectResult>().Which.Value;
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(value));
+        await context.Result.Should().BeOfType<PrecognitionErrorResult>().Which.ExecuteResultAsync(context);
+        using var doc = JsonDocument.Parse(await context.HttpContext.ReadResponseBodyAsync());
         return doc.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name).ToList();
     }
 }

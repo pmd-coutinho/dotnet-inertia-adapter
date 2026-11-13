@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using System.Text.Json;
 
 namespace InertiaNet.Middleware;
 
@@ -30,13 +29,8 @@ public sealed class InertiaPrecognitionFilter : IAsyncActionFilter
                     pair.Value!.Errors.Select(error => string.IsNullOrEmpty(error.ErrorMessage)
                         ? "The value is invalid." : error.ErrorMessage).ToArray())));
         PrecognitionValidation.SetHeaders(context.HttpContext.Response, errors.Count == 0);
-        if (errors.Count == 0)
-        {
-            context.Result = new StatusCodeResult(204);
-        }
-        else
-        {
-            context.Result = new UnprocessableEntityObjectResult(PrecognitionValidation.ErrorPayload(errors));
-        }
+        context.Result = errors.Count == 0
+            ? new StatusCodeResult(204)
+            : new PrecognitionErrorResult(errors);
     }
 }

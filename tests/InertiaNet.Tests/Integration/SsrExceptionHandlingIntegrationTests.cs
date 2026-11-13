@@ -27,7 +27,6 @@ internal sealed class ErrorViewResultExecutor : IActionResultExecutor<ViewResult
     {
         var page = result.ViewData.Model as InertiaPage;
 
-        context.HttpContext.Response.StatusCode = StatusCodes.Status200OK;
         context.HttpContext.Response.ContentType = "text/plain";
         context.HttpContext.Response.Headers[ComponentHeader] = page?.Component ?? string.Empty;
 
@@ -68,7 +67,8 @@ public class SsrExceptionHandlingIntegrationTests
         {
             using var response = await app.GetTestClient().GetAsync("/");
 
-            response.IsSuccessStatusCode.Should().BeTrue();
+            // The handler's page has no WithStatus, so it reports the failed render as a 500.
+            response.StatusCode.Should().Be(System.Net.HttpStatusCode.InternalServerError);
             response.Headers.GetValues(ErrorViewResultExecutor.ComponentHeader)
                 .Should().ContainSingle().Which.Should().Be("Errors/Ssr");
             (await response.Content.ReadAsStringAsync()).Should().Be("Errors/Ssr");

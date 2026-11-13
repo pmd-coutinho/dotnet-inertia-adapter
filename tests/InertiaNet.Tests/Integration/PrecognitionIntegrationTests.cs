@@ -95,6 +95,40 @@ public class PrecognitionIntegrationTests
     }
 
     [Theory]
+    [InlineData("mvc", false, false)]
+    [InlineData("minimal", false, false)]
+    [InlineData("mvc", true, false)]
+    [InlineData("minimal", true, false)]
+    [InlineData("mvc", false, true)]
+    [InlineData("minimal", false, true)]
+    public async Task ErrorBody_IgnoresTheApplicationJsonOptions(string endpoint, bool nullInertiaPolicy, bool renameProperties)
+    {
+        // Application JSON options that would rename the error keys (dictionary policy) and, with a renaming
+        // property policy, the envelope, if the 422 body went through the MVC or Minimal API serializer.
+        void Hostile(JsonSerializerOptions json)
+        {
+            json.PropertyNamingPolicy = renameProperties ? JsonNamingPolicy.KebabCaseUpper : null;
+            json.DictionaryKeyPolicy = JsonNamingPolicy.KebabCaseUpper;
+        }
+        await using var app = await App(
+            options => { if (nullInertiaPolicy) options.JsonSerializerOptions = new JsonSerializerOptions(); },
+            Hostile);
+        using var client = app.GetTestClient();
+        using var request = Request(endpoint, new { email = "invalid", name = "", addresses = new[] { new { street = "Main" }, new { street = "" } } });
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("message", "errors");
+        doc.RootElement.GetProperty("message").GetString().Should().Be("The given data was invalid.");
+        var keys = doc.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name);
+        if (nullInertiaPolicy) keys.Should().BeEquivalentTo("Email", "Name", "Addresses.1.Street");
+        else keys.Should().BeEquivalentTo("email", "name", "addresses.1.street");
+        app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
+    }
+
+    [Theory]
     [InlineData("mvc")]
     [InlineData("minimal")]
     public async Task OrdinarySubmission_StillExecutesTheHandler(string endpoint)
@@ -116,6 +150,20 @@ public class PrecognitionIntegrationTests
         app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
     }
 
+    [Fact]
+    public async Task MinimalApiEndpointFilters_CanStillReadThe422()
+    {
+        await using var app = await App();
+        using var client = app.GetTestClient();
+        using var request = Request("minimal", new { email = "invalid", name = "" });
+        request.RequestUri = new Uri("/precognition-observed/observed", UriKind.Relative);
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.Headers.GetValues("X-Observed-Result").Should().Equal("422 application/json; charset=utf-8 value");
+        app.Services.GetRequiredService<PrecognitionSideEffects>().Calls.Should().Be(0);
+    }
+
     private static HttpRequestMessage Request(string endpoint, object payload)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, $"/precognition/{endpoint}") { Content = JsonContent.Create(payload) };
@@ -124,18 +172,34 @@ public class PrecognitionIntegrationTests
         return request;
     }
 
-    private static async Task<WebApplication> App(Action<InertiaOptions>? configure = null)
+    private static async Task<WebApplication> App(Action<InertiaOptions>? configure = null,
+        Action<JsonSerializerOptions>? configureApplicationJson = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton<PrecognitionSideEffects>();
-        builder.Services.AddControllersWithViews().AddApplicationPart(typeof(PrecognitionProbeController).Assembly);
+        builder.Services.AddControllersWithViews().AddApplicationPart(typeof(PrecognitionProbeController).Assembly)
+            .AddJsonOptions(options => configureApplicationJson?.Invoke(options.JsonSerializerOptions));
+        builder.Services.ConfigureHttpJsonOptions(options => configureApplicationJson?.Invoke(options.SerializerOptions));
         builder.Services.AddInertia(configure ?? (_ => { }));
         var app = builder.Build();
         app.UseInertia();
         app.MapControllers();
         app.MapGroup("/precognition").WithInertiaPrecognition()
             .MapPost("/minimal", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
+            { effects.Calls++; return Results.Ok(new { saved = true }); });
+        // An application filter outside the Precognition filter, inspecting the result it returns.
+        app.MapGroup("/precognition-observed")
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var result = await next(context);
+                if (result is IStatusCodeHttpResult { StatusCode: { } status } and IContentTypeHttpResult { ContentType: { } contentType })
+                    context.HttpContext.Response.Headers["X-Observed-Result"] =
+                        $"{status} {contentType} {(result is IValueHttpResult { Value: not null } ? "value" : "no-value")}";
+                return result;
+            })
+            .WithInertiaPrecognition()
+            .MapPost("/observed", ([FromBody] PrecognitionInput input, PrecognitionSideEffects effects) =>
             { effects.Calls++; return Results.Ok(new { saved = true }); });
         await app.StartAsync();
         return app;

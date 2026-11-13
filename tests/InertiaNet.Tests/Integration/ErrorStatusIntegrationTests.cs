@@ -66,7 +66,18 @@ internal sealed class StubRootView(string path) : IView
     }
 }
 
-public sealed class ErrorStatusProbeException : Exception;
+/// <summary>
+/// Handled by the test app's <c>HandleExceptionsUsing</c>; a null status renders without <c>WithStatus</c>,
+/// and a response status is assigned to <c>context.Response.StatusCode</c> by the handler first.
+/// </summary>
+public sealed class ErrorStatusProbeException(int? status = StatusCodes.Status500InternalServerError, int? responseStatus = null) : Exception
+{
+    public int? Status { get; } = status;
+
+    public int? ResponseStatus { get; } = responseStatus;
+}
+
+public sealed record ErrorStatusProps(int Status);
 
 public sealed class ErrorStatusThrowingValue
 {
@@ -80,6 +91,13 @@ public sealed class ErrorStatusProbeController : Controller
     public IActionResult Missing()
         => this.Inertia("Errors/Status", new { status = StatusCodes.Status404NotFound })
             .WithStatus(StatusCodes.Status404NotFound);
+
+    [HttpGet("render-failure")]
+    public IActionResult RenderFailure([FromServices] IInertiaService inertia)
+        => this.Inertia("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+        });
 }
 
 public class ErrorStatusIntegrationTests
@@ -117,6 +135,56 @@ public class ErrorStatusIntegrationTests
 
         page.HasComponent("Errors/Status").HasUrl(path).HasProp("status", (int)expected);
         response.Headers.Vary.Should().Contain(HeaderNames.Inertia);
+    }
+
+    // ── InertiaResults status overloads ──────────────────────────────────────
+
+    public static TheoryData<string> StatusOverloads => ["object", "dictionary", "factory", "async-factory", "typed"];
+
+    [Theory]
+    [MemberData(nameof(StatusOverloads))]
+    public async Task InertiaResultsStatusOverloads_ShouldApplyToInitialHtmlResponses(string overload)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var response = await app.Client.GetAsync($"/results/status/{overload}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
+        response.Headers.GetValues(StatusPreservingViewResultExecutor.PageComponentHeader)
+            .Should().ContainSingle().Which.Should().Be("Errors/Status");
+    }
+
+    [Theory]
+    [MemberData(nameof(StatusOverloads))]
+    public async Task InertiaResultsStatusOverloads_ShouldApplyToInertiaJsonResponses(string overload)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, $"/results/status/{overload}");
+        using var response = await app.Client.SendAsync(request);
+        var page = await response.AssertInertiaAsync(HttpStatusCode.Gone);
+
+        page.HasComponent("Errors/Status").HasProp("status", StatusCodes.Status410Gone);
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status204NoContent)]
+    [InlineData(StatusCodes.Status302Found)]
+    [InlineData(StatusCodes.Status100Continue)]
+    public void InertiaResultsStatusOverloads_ShouldRejectStatusesThatCannotCarryAPage_WhenCreated(int statusCode)
+    {
+        var component = new InertiaComponent<ErrorStatusProps>("Errors/Status");
+        var creations = new Func<IResult>[]
+        {
+            () => InertiaResults.Inertia("Errors/Status", new { status = statusCode }, statusCode),
+            () => InertiaResults.Inertia("Errors/Status", new Dictionary<string, object?>(), statusCode),
+            () => InertiaResults.Inertia("Errors/Status", _ => null, statusCode),
+            () => InertiaResults.Inertia("Errors/Status", (_, _) => Task.FromResult<object?>(null), statusCode),
+            () => InertiaResults.Inertia(component, new ErrorStatusProps(statusCode), statusCode),
+        };
+
+        foreach (var create in creations)
+            create.Should().Throw<ArgumentOutOfRangeException>().Which.ParamName.Should().Be("statusCode");
     }
 
     [Fact]
@@ -280,6 +348,57 @@ public class ErrorStatusIntegrationTests
         (await jsonResponse.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render");
     }
 
+    [Theory]
+    [InlineData("/minimal/render-failure/default")]
+    [InlineData("/error-status/mvc/render-failure")]
+    [InlineData("/minimal/render-failure/on-404")]
+    public async Task HandleExceptionsUsing_ShouldDefaultTo500_WithoutAnExplicitStatus(string path)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var htmlResponse = await app.Client.GetAsync(path);
+        htmlResponse.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        htmlResponse.Headers.GetValues(StatusPreservingViewResultExecutor.PageComponentHeader)
+            .Should().ContainSingle().Which.Should().Be("Errors/Render");
+        htmlResponse.Headers.GetValues(StatusPreservingViewResultExecutor.PageUrlHeader)
+            .Should().ContainSingle().Which.Should().Be(path);
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, path);
+        using var jsonResponse = await app.Client.SendAsync(request);
+        (await jsonResponse.AssertInertiaAsync(HttpStatusCode.InternalServerError)).HasComponent("Errors/Render").HasUrl(path);
+    }
+
+    [Theory]
+    [InlineData("/minimal/render-failure/handler-sets-404", HttpStatusCode.NotFound)]
+    [InlineData("/minimal/render-failure/on-404/handler-sets-404", HttpStatusCode.InternalServerError)]
+    [InlineData("/minimal/render-failure/handler-sets-404/explicit", HttpStatusCode.ServiceUnavailable)]
+    public async Task HandleExceptionsUsing_ShouldKeepAStatusTheHandlerAssigns(string path, HttpStatusCode expected)
+    {
+        await using var app = await CreateAppAsync();
+
+        using var htmlResponse = await app.Client.GetAsync(path);
+        htmlResponse.StatusCode.Should().Be(expected);
+        htmlResponse.Headers.GetValues(StatusPreservingViewResultExecutor.PageComponentHeader)
+            .Should().ContainSingle().Which.Should().Be("Errors/Render");
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, path);
+        using var jsonResponse = await app.Client.SendAsync(request);
+        (await jsonResponse.AssertInertiaAsync(expected)).HasComponent("Errors/Render").HasUrl(path);
+    }
+
+    [Fact]
+    public async Task HandleExceptionsUsing_ShouldPreferAnExplicitStatus()
+    {
+        await using var app = await CreateAppAsync();
+
+        using var htmlResponse = await app.Client.GetAsync("/minimal/render-failure/explicit");
+        htmlResponse.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+
+        using var request = CreateInertiaRequest(HttpMethod.Get, "/minimal/render-failure/explicit");
+        using var jsonResponse = await app.Client.SendAsync(request);
+        (await jsonResponse.AssertInertiaAsync(HttpStatusCode.ServiceUnavailable)).HasComponent("Errors/Render");
+    }
+
     [Fact]
     public async Task HandleExceptionsUsing_ShouldNotKeepThePrefetchCacheHeader_WhenSerializationFails()
     {
@@ -420,11 +539,12 @@ public class ErrorStatusIntegrationTests
             options.RootView = "App";
             options.Version = () => "server-version";
             options.HandleExceptionsUsing = (exception, context) =>
-                exception is not ErrorStatusProbeException
-                    ? null
-                    : context.RequestServices.GetRequiredService<IInertiaService>()
-                        .Render("Errors/Render")
-                        .WithStatus(StatusCodes.Status500InternalServerError);
+            {
+                if (exception is not ErrorStatusProbeException probe) return null;
+                if (probe.ResponseStatus is { } responseStatus) context.Response.StatusCode = responseStatus;
+                var page = context.RequestServices.GetRequiredService<IInertiaService>().Render("Errors/Render");
+                return probe.Status is { } status ? page.WithStatus(status) : page;
+            };
         });
 
         var app = builder.Build();
@@ -457,6 +577,16 @@ public class ErrorStatusIntegrationTests
             return explicitErrorStatus ? page.WithStatus(status) : page;
         });
         app.MapGet("/dashboard", (IInertiaService inertia) => inertia.Render("Dashboard"));
+        const int gone = StatusCodes.Status410Gone;
+        app.MapGet("/results/status/object", () => InertiaResults.Inertia("Errors/Status", new { status = gone }, gone));
+        app.MapGet("/results/status/dictionary", () => InertiaResults.Inertia("Errors/Status",
+            new Dictionary<string, object?> { ["status"] = gone }, gone));
+        app.MapGet("/results/status/factory", () => InertiaResults.Inertia("Errors/Status",
+            _ => new { status = gone }, gone));
+        app.MapGet("/results/status/async-factory", () => InertiaResults.Inertia("Errors/Status",
+            (_, _) => Task.FromResult<object?>(new { status = gone }), gone));
+        app.MapGet("/results/status/typed", () => InertiaResults.Inertia(
+            new InertiaComponent<ErrorStatusProps>("Errors/Status"), new ErrorStatusProps(gone), gone));
         app.MapGet("/minimal/forbidden", (IInertiaService inertia) =>
             inertia.Render("Errors/Status", new { status = StatusCodes.Status403Forbidden })
                 .WithStatus(StatusCodes.Status403Forbidden));
@@ -467,6 +597,42 @@ public class ErrorStatusIntegrationTests
         app.MapGet("/minimal/render-failure", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
         {
             ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException()),
+        }));
+        app.MapGet("/minimal/render-failure/default", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+        }));
+        app.MapGet("/minimal/render-failure/explicit", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(StatusCodes.Status503ServiceUnavailable)),
+        }));
+        // A render that fails while the response already carries 404 still reports the failure as a 500.
+        app.MapGet("/minimal/render-failure/on-404", (HttpContext context, IInertiaService inertia) =>
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return inertia.Render("Errors/Status", new Dictionary<string, object?>
+            {
+                ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null)),
+            });
+        });
+        // The handler assigns a status itself, without WithStatus.
+        app.MapGet("/minimal/render-failure/handler-sets-404", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null, StatusCodes.Status404NotFound)),
+        }));
+        // The handler assigns the status the response already had, which cannot be told apart from leaving it.
+        app.MapGet("/minimal/render-failure/on-404/handler-sets-404", (HttpContext context, IInertiaService inertia) =>
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return inertia.Render("Errors/Status", new Dictionary<string, object?>
+            {
+                ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(status: null, StatusCodes.Status404NotFound)),
+            });
+        });
+        // An explicit status wins over the one the handler assigns.
+        app.MapGet("/minimal/render-failure/handler-sets-404/explicit", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
+        {
+            ["report"] = inertia.Always((_, _) => throw new ErrorStatusProbeException(StatusCodes.Status503ServiceUnavailable, StatusCodes.Status404NotFound)),
         }));
         app.MapGet("/minimal/serialization-failure", (IInertiaService inertia) => inertia.Render("Dashboard", new Dictionary<string, object?>
         {

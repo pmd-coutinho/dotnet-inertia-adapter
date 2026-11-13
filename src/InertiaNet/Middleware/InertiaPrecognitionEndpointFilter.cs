@@ -41,7 +41,6 @@ public sealed class InertiaPrecognitionEndpointFilter(MethodInfo handler) : IEnd
         var selected = PrecognitionValidation.SelectErrors(context.HttpContext.Request,
             errors.Select(pair => new KeyValuePair<string, string[]>(pair.Key, pair.Value.ToArray())));
         PrecognitionValidation.SetHeaders(context.HttpContext.Response, selected.Count == 0);
-        return selected.Count == 0 ? Results.NoContent()
-            : Results.Json(PrecognitionValidation.ErrorPayload(selected), statusCode: StatusCodes.Status422UnprocessableEntity);
+        return selected.Count == 0 ? Results.NoContent() : new PrecognitionErrorResult(selected);
     }
 }
