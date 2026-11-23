@@ -101,6 +101,9 @@ jobs:
       - name: Pack Analyzers
         run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
 
+      - name: Pack Wolverine Integration
+        run: dotnet pack src/InertiaNet.Wolverine/InertiaNet.Wolverine.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.versions.outputs.platform_version }} -o artifacts
+
       - name: Stage Templates Package Sources
         run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.platform_version }}"
 

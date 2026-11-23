@@ -335,6 +335,35 @@ app.MapInertiaFallback("AppShell");
 ```
 
 Initial HTML rendering for Minimal APIs still requires Razor view services and a root view.
+
+### Wolverine.HTTP
+
+Install the `InertiaNet.Wolverine` package (.NET 9 or later, WolverineFx.Http 6)
+and call `UseInertia()` when mapping the Wolverine endpoints:
+
+```csharp
+builder.Host.UseWolverine();
+builder.Services.AddWolverineHttp();
+builder.Services.AddControllersWithViews();
+builder.Services.AddInertia();
+
+var app = builder.Build();
+app.UseInertia();
+app.MapWolverineEndpoints(opts => opts.UseInertia());
+
+public static class DashboardEndpoints
+{
+    [WolverineGet("/dashboard")]
+    public static IResult Get(IInertiaService inertia) =>
+        inertia.Render("Dashboard", new { ready = true });
+}
+```
+
+`UseInertia()` makes Wolverine take `IInertiaService` from
+`HttpContext.RequestServices`. Without it, Wolverine creates the service in its
+own scope and props shared by the Inertia middleware are missing. Validation
+forwarding and Precognition are not yet available for Wolverine.HTTP endpoints;
+see the [package README](src/InertiaNet.Wolverine/README.md).
 Register `AddControllersWithViews()` or `AddRazorPages()` in addition to `AddInertia(...)`.
 
 ### MVC Controller

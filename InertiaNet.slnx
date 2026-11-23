@@ -4,12 +4,14 @@
     <Project Path="src/InertiaNet.Pathfinder/InertiaNet.Pathfinder.csproj" />
     <Project Path="src/InertiaNet.Pathfinder.Build/InertiaNet.Pathfinder.Build.csproj" />
     <Project Path="src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj" />
+    <Project Path="src/InertiaNet.Wolverine/InertiaNet.Wolverine.csproj" />
     <Project Path="src/InertiaNet.Templates/InertiaNet.Templates.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/InertiaNet.Tests/InertiaNet.Tests.csproj" />
     <Project Path="tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj" />
     <Project Path="tests/InertiaNet.Analyzers.Tests/InertiaNet.Analyzers.Tests.csproj" />
+    <Project Path="tests/InertiaNet.Wolverine.Tests/InertiaNet.Wolverine.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/KitchenSink/KitchenSink.csproj" />
