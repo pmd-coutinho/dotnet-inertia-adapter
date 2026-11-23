@@ -15,6 +15,7 @@ This repository uses one **platform-wide version train** for all publishable pac
 - `InertiaNet.Pathfinder.Build`
 - `InertiaNet.Analyzers`
 - `InertiaNet.Templates`
+- `InertiaNet.Wolverine`
 
 Publishing is split into two modes:
 
@@ -65,7 +66,7 @@ All publishable packages now use the same resolved package version.
 
 InertiaNet uses its own Semantic Versioning sequence. Increment the patch for
 compatible fixes, the minor for compatible features, and the major for breaking
-changes. All five packages stay on this shared sequence. Their versions do not
+changes. All six packages stay on this shared sequence. Their versions do not
 need to equal an upstream adapter or JavaScript client version.
 
 The separately recorded compatibility baseline is the reviewed
@@ -131,6 +132,7 @@ That publishes all packages at the exact stable version:
 - `InertiaNet.Pathfinder.Build` -> `3.5.3`
 - `InertiaNet.Analyzers` -> `3.5.3`
 - `InertiaNet.Templates` -> `3.5.3`
+- `InertiaNet.Wolverine` -> `3.5.3`
 
 You can also use `workflow_dispatch` with `release_kind = prerelease` if you ever need a manual prerelease.
 

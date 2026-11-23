@@ -68,6 +68,33 @@ jobs:
       - name: Test Pathfinder
         run: dotnet test tests/InertiaNet.Pathfinder.Tests/InertiaNet.Pathfinder.Tests.csproj --configuration Release --no-restore
 
+  test-wolverine:
+    name: Test Wolverine (${{ matrix.framework }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - framework: net9.0
+            dotnet-version: 9.0.x
+          - framework: net10.0
+            dotnet-version: 10.0.x
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+
+      - name: Restore tests
+        run: dotnet restore tests/InertiaNet.Wolverine.Tests/InertiaNet.Wolverine.Tests.csproj -p:TargetFramework=${{ matrix.framework }}
+
+      - name: Test
+        run: dotnet test tests/InertiaNet.Wolverine.Tests/InertiaNet.Wolverine.Tests.csproj --configuration Release --framework ${{ matrix.framework }} --no-restore
+
   test-pathfinder-packages:
     name: Installed Pathfinder and build integration
     runs-on: ubuntu-latest
@@ -263,6 +290,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
+      - test-wolverine
       - test-pathfinder
       - test-pathfinder-packages
       - test-generated-typescript
@@ -298,6 +326,9 @@ jobs:
 
       - name: Pack Analyzers
         run: dotnet pack src/InertiaNet.Analyzers/InertiaNet.Analyzers.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
+
+      - name: Pack Wolverine Integration
+        run: dotnet pack src/InertiaNet.Wolverine/InertiaNet.Wolverine.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -o artifacts
 
       - name: Stage Templates Package Sources
         run: bash scripts/stage-templates.sh src/InertiaNet.Templates "$RUNNER_TEMP/InertiaNet.Templates" "${{ steps.versions.outputs.platform_version }}"
